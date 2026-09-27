@@ -546,7 +546,7 @@ namespace Ship_Game
             if (showGeneralUI)
             {
                 DrawPlanetInfo();
-                EmpireUI.Draw(batch);
+                EmpireUI.Draw(batch, sidebarNavigation: true);
                 if (LookingAtPlanet)
                 {
                     workersPanel?.Draw(batch, elapsed);
@@ -581,6 +581,8 @@ namespace Ship_Game
             DrawGeneralStatusText(batch, elapsed);
 
             base.Draw(batch, elapsed);  // UIElementV2 Draw
+
+            if (showGeneralUI) EmpireUI.DrawDashboardPopover(batch);
 
             DrawUI.Stop();
         }
@@ -677,15 +679,6 @@ namespace Ship_Game
             else if (Debug)
             {
                 DrawTopCenterStatusText(batch, "Debug", Color.GreenYellow, 2);
-            }
-
-            if (IsActive && UState.GameSpeed.NotEqual(1)) //don't show "1.0x"
-            {
-                string speed = UState.GameSpeed.ToString("0.0##") + "x";
-                Font font = UState.GameSpeed is > 3 or < 0.25f ? Fonts.Pirulen20 : Fonts.Pirulen16;
-                Color color = font == Fonts.Pirulen20 ? Color.Red : Color.LightGreen;
-                var pos = new Vector2(ScreenWidth - font.TextWidth(speed) - 20f, 90f);
-                batch.DrawString(font, speed, pos, color);
             }
 
             if (IsActive && !IsCinematicModeEnabled && (Debug || Debugger.IsAttached))

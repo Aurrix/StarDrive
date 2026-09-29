@@ -119,7 +119,8 @@ namespace Ship_Game
             if (AsyncUniverse.IsComplete)
             {
                 cursor.Y -= Fonts.Pirulen16.LineSpacing + 10f;
-                string begin = BordersReady ? Localizer.Token(GameText.ClickToContinue) : "Preparing empire borders...";
+                string begin = BordersReady ? Localizer.Token(GameText.ClickToContinue)
+                    : AsyncUniverse.Result?.BorderLoadStatus ?? "Preparing empire border data...";
                 cursor.X = ScreenCenter.X - Fonts.Pirulen16.MeasureString(begin).X / 2f;
                 batch.DrawString(Fonts.Pirulen16, begin, cursor, CurrentFlashColor);
             }

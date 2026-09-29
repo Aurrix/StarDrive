@@ -219,7 +219,11 @@ public partial class BorderVisualTests : StarDriveTest
             {
                 int pa = y*320+x, pb = y*320+x-256;
                 CollectionAssert.AreEqual(a.Regions[a.Labels[pa]].Members, b.Regions[b.Labels[pb]].Members);
-                Assert.AreEqual(a.Territory[pa].A, b.Territory[pb].A, "Distance field seam");
+                // The deeper fade uses a 30-cell neighborhood. Only the shared
+                // samples straddling the rendered seam have that full support
+                // in both tiles; the outer gutter itself is never rendered.
+                if (x >= 286 && x <= 289)
+                    Assert.AreEqual(a.Territory[pa].A, b.Territory[pb].A, "Distance field seam");
             }
         foreach (int id in new[] {0,1,255,256,65535,65536,16777215})
             Assert.AreEqual(id, BorderVisualTile.Decode(BorderVisualTile.Encode(id,173)));
@@ -248,12 +252,104 @@ public partial class BorderVisualTests : StarDriveTest
     }
 
     [TestMethod]
+    public void GeneratedGameHasCompleteBordersBeforeEnteringMap()
+    {
+        LoadAllGameData();
+        var playerData = ResourceManager.FindEmpire("United").CreateInstance();
+        playerData.DiplomaticPersonality = new();
+        CreateCustomUniverse(new UniverseParams
+        {
+            PlayerData = playerData,
+            Mode = RaceDesignScreen.GameMode.Sandbox, GalaxySize = GalSize.Tiny,
+            NumSystems = 12, NumOpponents = 1, StarsModifier = 1, Pace = 1,
+            Difficulty = GameDifficulty.Normal,
+        });
+        Universe.CreateSimThread = false;
+        float alpha = GlobalStats.InfluenceNodeAlpha;
+        GlobalStats.InfluenceNodeAlpha = 1;
+        UState.P.DisablePoliticalBorders = false;
+        UState.HidePoliticalBorders = false;
+        try
+        {
+            CreatingNewGameScreen.InitializeGeneratedUniverse(Universe);
+            float date = UState.StarDate;
+            Assert.IsTrue(SpinWait.SpinUntil(() => Universe.PrepareLoadedBorderVisuals(Game.GraphicsDevice),60000));
+            Assert.IsNotNull(Universe.PoliticalBorders.DisplayedScene);
+            Assert.IsTrue(Universe.PoliticalBorders.DisplayedScene.Empires.All(e=> !e.Active || e.Snapshot != null));
+            Assert.IsTrue(Player.PreparedBorders.Field.Strength(Player.Capital.Position) > 0);
+            Assert.IsTrue(Universe.PoliticalBorders.TilesUploaded > 0);
+            Assert.AreEqual(date,UState.StarDate,"Border preparation must not advance gameplay");
+        }
+        finally { GlobalStats.InfluenceNodeAlpha = alpha; }
+    }
+
+    [TestMethod]
+    public void SavePreparationMakesStaleOverviewConsistentWithNewColony()
+    {
+        AddDummyPlanetToEmpire(new Vector2(1000,1000),Player);
+        float alpha = GlobalStats.InfluenceNodeAlpha;
+        GlobalStats.InfluenceNodeAlpha = 1;
+        UState.P.DisablePoliticalBorders = false;
+        UState.HidePoliticalBorders = false;
+        try
+        {
+            Assert.IsTrue(SpinWait.SpinUntil(() => Universe.PrepareLoadedBorderVisuals(Game.GraphicsDevice),30000));
+            byte[] oldKey = UState.BorderOverviewCache.SceneKey;
+            // Save while presentation still shows the previous generation.
+            AddDummyPlanetToEmpire(new Vector2(400000,1000),Player);
+            Universe.Projection = Matrix.Identity;
+            Universe.CamPos = new Vector3d(0,0,300000);
+            var preparation = new BorderSavePreparation(UState);
+            UniverseState loaded;
+            try
+            {
+                UState.BorderOverviewForSave = preparation.Complete();
+                Assert.IsTrue(UState.BorderOverviewForSave.DetailTiles.Length > 0,
+                    "Save must include the camera's visible detailed borders");
+                Assert.IsFalse(oldKey.AsSpan().SequenceEqual(UState.BorderOverviewForSave.SceneKey));
+                loaded = UnitTests.Serialization.BinarySerializerTests.SerDes(UState);
+            }
+            finally { UState.BorderOverviewForSave = null; preparation.Release(); }
+            using var screen = new UniverseScreen(loaded) { CreateSimThread = false };
+            loaded.Objects.InitializeFromSave();
+            Assert.IsTrue(SpinWait.SpinUntil(() => screen.PrepareLoadedBorderVisuals(Game.GraphicsDevice),30000));
+            Assert.AreEqual(0,screen.PoliticalBorders.JobsStarted);
+            Assert.IsTrue(screen.PoliticalBorders.TilesUploaded >= loaded.BorderOverviewCache.Tiles.Length);
+            var fields = loaded.Empires.Select(e=>e.PreparedBorders).ToArray();
+            for (int i = 0; i < 310; ++i)
+                foreach (var empire in loaded.Empires) if (!empire.IsDefeated) empire.ResetBorders();
+            for (int i = 0; i < fields.Length; ++i)
+                Assert.AreSame(fields[i],loaded.Empires[i].PreparedBorders,"Unchanged inputs must not trigger post-load replacement");
+            screen.PoliticalBorders.Dispose(); screen.PoliticalBorders = null;
+        }
+        finally
+        {
+            GlobalStats.InfluenceNodeAlpha = alpha;
+            Universe.PoliticalBorders?.Dispose(); Universe.PoliticalBorders = null;
+        }
+    }
+
+    [TestMethod]
     public void SavedOverviewRoundTripSkipsRasterizationAndRejectsChangedScene()
     {
         SetField(Player,(new Vector2(1000,1000),100000));
         var scene = new BorderScene(new[]{Player});
         var view = new RectF(-300000,-300000,600000,600000);
         using var original = new BorderVisualRenderer(Game.GraphicsDevice);
+        var pixels = new BorderVisualTile(scene,new BorderVisualTile.Key(0,0,0));
+        byte[] packed = pixels.Save();
+        var decoded = new BorderVisualTile(packed,scene.Empires.Length);
+        CollectionAssert.AreEqual(pixels.Territory,decoded.Territory);
+        CollectionAssert.AreEqual(pixels.Neighbor,decoded.Neighbor);
+        CollectionAssert.AreEqual(pixels.Metadata,decoded.Metadata);
+        CollectionAssert.AreEqual(pixels.Colors,decoded.Colors);
+        using (var zip = new System.IO.Compression.DeflateStream(new MemoryStream(packed),System.IO.Compression.CompressionMode.Decompress))
+        using (var reader = new BinaryReader(zip))
+        {
+            reader.ReadInt32(); reader.ReadInt32(); reader.ReadInt32();
+            foreach (Color color in pixels.Territory)
+                Assert.AreEqual(color.PackedValue,reader.ReadUInt32(),"Bulk cache IO must preserve the original packed pixel format");
+        }
         Assert.IsTrue(SpinWait.SpinUntil(() =>
         {
             original.Update(scene,300000,view,view.W/450,overviewOnly:true);
@@ -299,6 +395,21 @@ public partial class BorderVisualTests : StarDriveTest
         Assert.IsFalse(saved.Matches(changed));
         saved.Version++;
         Assert.IsFalse(saved.Matches(snapshot.SaveCache.Inputs));
+    }
+
+    [TestMethod]
+    public void SavedGeometryUsesGameplayChangeThreshold()
+    {
+        SetField(Player,(new Vector2(1000,1000),100000));
+        var snapshot = Player.PreparedBorders;
+        var node = snapshot.Nodes[0];
+        var a = new BorderField.Node(node.Position,node.Radius,0,0.501f);
+        var b = new BorderField.Node(node.Position,node.Radius+0.01f,0,0.502f);
+        CollectionAssert.AreEqual(SavedBorderGeometry.Key(snapshot.Nodes,new[]{a},snapshot.ProjectorRadius),
+            SavedBorderGeometry.Key(snapshot.Nodes,new[]{b},snapshot.ProjectorRadius));
+        b = new(node.Position,node.Radius,0,0.52f);
+        Assert.IsFalse(SavedBorderGeometry.Key(snapshot.Nodes,new[]{a},snapshot.ProjectorRadius).AsSpan()
+            .SequenceEqual(SavedBorderGeometry.Key(snapshot.Nodes,new[]{b},snapshot.ProjectorRadius)));
     }
 
     [TestMethod]

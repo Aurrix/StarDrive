@@ -99,6 +99,7 @@ internal sealed class BorderVisualRenderer : IDisposable
     public BorderScene DisplayedScene => Displayed?.Scene;
     BorderScene SavedOverviewScene;
     internal SavedBorderOverview SavedOverview { get; private set; }
+    internal bool RestoredTilesReady => Uploads.Count == 0;
 
     internal bool RestoreOverview(SavedBorderOverview saved, BorderScene scene, float radius)
     {
@@ -116,6 +117,16 @@ internal sealed class BorderVisualRenderer : IDisposable
                 var tile = new BorderVisualTile(bytes, scene.Empires.Length);
                 if (!generation.Overview.Contains(tile.Address) || !keys.Add(tile.Address)) return false;
                 restored.Add(tile);
+            }
+            if (saved.DetailTiles != null)
+            {
+                if (saved.DetailTiles.Length > 128) return false;
+                foreach (byte[] bytes in saved.DetailTiles)
+                {
+                    var tile = new BorderVisualTile(bytes, scene.Empires.Length);
+                    if (tile.Address.Level < -64 || tile.Address.Level > 64 || !keys.Add(tile.Address)) return false;
+                    restored.Add(tile);
+                }
             }
         }
         catch (Exception e) when (e is System.IO.IOException || e is ArgumentException)

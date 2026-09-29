@@ -16,7 +16,8 @@ internal sealed class SavedBorderOverview
     [StarData] public float Radius;
     [StarData] public byte[] SceneKey;
     [StarData] public byte[][] Tiles;
-    internal const int CurrentVersion = 1;
+    [StarData] public byte[][] DetailTiles;
+    internal const int CurrentVersion = 3;
 }
 
 // CPU-only immutable products. No graphics device or live empire is accessed here.
@@ -50,6 +51,7 @@ internal sealed class BorderVisualTile
         internal readonly int[] InputSeeds = new int[Width], Sites = new int[Width];
     }
     public const int Interior = 256, Gutter = 32, Size = Interior + Gutter * 2;
+    public const float DistanceRange = 32; // keep in sync with PoliticalBorders.fx
     public const int PaletteWidth = 1024;
     public readonly record struct Key(int Level, int X, int Y)
     {
@@ -84,8 +86,11 @@ internal sealed class BorderVisualTile
         using (var w = new BinaryWriter(zip))
         {
             w.Write(Address.Level); w.Write(Address.X); w.Write(Address.Y);
-            foreach (Color c in Territory) w.Write(c.PackedValue);
-            foreach (Color c in Neighbor) w.Write(c.PackedValue);
+            // Bulk IO avoids hundreds of thousands of tiny Deflate calls per
+            // tile. Color's packed uint and Vector4 floats use the same layout
+            // as the existing little-endian cache format on supported Windows.
+            zip.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(Territory.AsSpan()));
+            zip.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(Neighbor.AsSpan()));
             Write(Metadata); Write(Colors);
             w.Write(Regions.Length);
             foreach (var region in Regions)
@@ -96,7 +101,7 @@ internal sealed class BorderVisualTile
             void Write(Vector4[] values)
             {
                 w.Write(values.Length);
-                foreach (var v in values) { w.Write(v.X); w.Write(v.Y); w.Write(v.Z); w.Write(v.W); }
+                zip.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(values.AsSpan()));
             }
         }
         return stream.ToArray();
@@ -109,8 +114,8 @@ internal sealed class BorderVisualTile
         using var zip = new DeflateStream(stream, CompressionMode.Decompress);
         using var r = new BinaryReader(zip);
         Address = new(r.ReadInt32(), r.ReadInt32(), r.ReadInt32());
-        for (int i = 0; i < Territory.Length; ++i) Territory[i] = new Color { PackedValue = r.ReadUInt32() };
-        for (int i = 0; i < Neighbor.Length; ++i) Neighbor[i] = new Color { PackedValue = r.ReadUInt32() };
+        zip.ReadExactly(System.Runtime.InteropServices.MemoryMarshal.AsBytes(Territory.AsSpan()));
+        zip.ReadExactly(System.Runtime.InteropServices.MemoryMarshal.AsBytes(Neighbor.AsSpan()));
         Metadata = Read(); Colors = Read();
         int count = Count(Size*Size + 1);
         if (count == 0) throw new InvalidDataException("Missing border regions");
@@ -136,7 +141,7 @@ internal sealed class BorderVisualTile
             int n = Count(4*1024*1024);
             if (n == 0 || n % PaletteWidth != 0) throw new InvalidDataException("Invalid border palette");
             var values = new Vector4[n];
-            for (int i = 0; i < n; ++i) values[i] = new(r.ReadSingle(), r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
+            zip.ReadExactly(System.Runtime.InteropServices.MemoryMarshal.AsBytes(values.AsSpan()));
             return values;
         }
     }
@@ -211,7 +216,7 @@ internal sealed class BorderVisualTile
             for (int x = 0; x < Size; ++x)
             {
                 int p = y * Size + x, id = Labels[p], neighbor = 0;
-                float distance = 16;
+                float distance = DistanceRange;
                 int seed = nearest[(y * 2 + 1) * lattice + x * 2 + 1];
                 bool incident = false;
                 if (seed >= 0)
@@ -220,7 +225,7 @@ internal sealed class BorderVisualTile
                     incident = edge.A == id || edge.B == id;
                     if (incident)
                     {
-                        distance = Math.Min(16, edge.Distance(x + 0.5f, y + 0.5f));
+                        distance = Math.Min(DistanceRange, edge.Distance(x + 0.5f, y + 0.5f));
                         neighbor = edge.A == id ? edge.B : edge.A;
                     }
                 }
@@ -240,7 +245,7 @@ internal sealed class BorderVisualTile
                             if (d < distance) { distance = d; neighbor = edge.A == id ? edge.B : edge.A; }
                         }
                     }
-                Territory[p] = Encode(id, (byte)Math.Clamp((int)MathF.Round(distance / 16 * 255), 0, 255));
+                Territory[p] = Encode(id, (byte)Math.Clamp((int)MathF.Round(distance / DistanceRange * 255), 0, 255));
                 Neighbor[p] = Encode(neighbor, 0);
             }
         var palette = new List<Vector4> { Vector4.Zero };

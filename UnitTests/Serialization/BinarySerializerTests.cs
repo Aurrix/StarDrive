@@ -1325,6 +1325,10 @@ namespace UnitTests.Serialization
             load.Verbose = verbose;
             UniverseScreen us = load.Load(noErrorDialogs:true, startSimThread:false);
             Assert.IsNotNull(us, "Loaded universe cannot be null");
+            Assert.IsTrue(System.Threading.SpinWait.SpinUntil(() =>
+                us.PrepareLoadedBorderVisuals(Game.GraphicsDevice),60000),"Saved border cache did not finish restoring");
+            if (us.PoliticalBorders != null)
+                AssertEqual(0,us.PoliticalBorders.JobsStarted,"Real save/load should not rasterize borders again");
             us.SingleSimulationStep(TestSimStep);
 
             double memory4 = GetMemory(false);

@@ -31,7 +31,13 @@ namespace Ship_Game.Universe
         [StarData] public readonly float Size; // TODO: rename to UniverseRadius?
 
         [StarData] public UniverseParams P;
-        [StarData] internal SavedBorderOverview BorderOverviewCache;
+        internal SavedBorderOverview BorderOverviewForSave;
+        SavedBorderOverview RuntimeBorderOverview;
+        [StarData] internal SavedBorderOverview BorderOverviewCache
+        {
+            get => BorderOverviewForSave ?? RuntimeBorderOverview;
+            set => RuntimeBorderOverview = value;
+        }
 
         public float UniverseWidth => Size*2f;
         public float UniverseRadius => Size;

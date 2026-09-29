@@ -36,7 +36,13 @@ public partial class UniverseScreen
     public void SaveAsync(string saveName, bool resetLogOnComplete = false)
     {
         IsSaving = true;
-        var savedGame = new SavedGame(this);
+        SavedGame savedGame;
+        try { savedGame = new SavedGame(this); }
+        catch
+        {
+            IsSaving = false;
+            throw;
+        }
         savedGame.SaveAsync(saveName, (error) =>
         {
             IsSaving = false;

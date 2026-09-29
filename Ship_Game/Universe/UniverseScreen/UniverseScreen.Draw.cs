@@ -73,6 +73,7 @@ namespace Ship_Game
         internal BorderVisualRenderer PoliticalBorders;
         BorderScene PresentedBorderSource, PresentedBorderScene;
         BorderScene LastNormalBorderScene;
+        internal string BorderLoadStatus { get; private set; } = "Preparing empire border data...";
 
         // Loading-screen Draw owns GPU uploads. Never warm GPU resources on
         // LoadGame's background thread or expose a partially populated scene.
@@ -87,11 +88,14 @@ namespace Ship_Game
             if (PoliticalBorders == null)
             {
                 PoliticalBorders = new BorderVisualRenderer(graphics);
-                PoliticalBorders.RestoreOverview(UState.BorderOverviewCache, PresentedBorderScene, UState.Size);
+                bool restored = PoliticalBorders.RestoreOverview(UState.BorderOverviewCache, PresentedBorderScene, UState.Size);
+                BorderLoadStatus = restored ? "Restoring saved borders..." : "Generating empire borders...";
             }
             PoliticalBorders.Update(PresentedBorderScene, UState.Size, view, view.W/450, overviewOnly: true);
             UState.BorderOverviewCache = PoliticalBorders.SavedOverview;
-            return PoliticalBorders.DisplayedScene == PresentedBorderScene;
+            bool ready = PoliticalBorders.DisplayedScene == PresentedBorderScene && PoliticalBorders.RestoredTilesReady;
+            if (ready) Log.Info($"Loaded borders ready: {PoliticalBorders.JobsStarted} raster jobs, {PoliticalBorders.TilesUploaded} tiles uploaded");
+            return ready;
         }
 
         void DrawColoredEmpireBorders(SpriteRenderer draw3d, GraphicsDevice graphics)

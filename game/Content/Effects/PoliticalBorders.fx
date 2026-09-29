@@ -24,10 +24,13 @@ float3 RegionColor(float id, float2 worldCell)
 }
 float4 Material(float id, float other, float distance, float2 worldCell)
 {
-    float halfWidth = lerp(1,0.5,Minimap);
+    float halfWidth = lerp(2.1,0.5,Minimap);
     float core = (1-smoothstep(halfWidth-0.65,halfWidth+0.65,distance))*lerp(0.8,0.7,Minimap);
-    float fill = id > 0 ? lerp(0.06,0.14,Minimap) : 0;
-    float glow = id > 0 ? pow(saturate(1 - distance / 8), 2) * 0.18 * (1-Minimap) : 0;
+    float fill = id > 0 ? lerp(0.012,0.14,Minimap) : 0;
+    // Fade toward the territory interior, leaving space outside the outline clear.
+    // Keep the band inside the encoded 32-cell distance range at every zoom.
+    float fadeWidth = max(0.001, min(48, PixelsPerCell * 30));
+    float glow = id > 0 ? pow(saturate(1 - distance / fadeWidth), 1.35) * 0.45 * (1-Minimap) : 0;
     float alpha = 1 - (1-fill) * (1-core) * (1-glow);
     if (id == 0 && other == 0) alpha = 0;
     float3 color = RegionColor(id > 0 ? id : other, worldCell);
@@ -37,7 +40,7 @@ float4 Material(float id, float other, float distance, float2 worldCell)
 }
 float SignedDistance(float4 sample, float region)
 {
-    return sample.a*16*(Decode(sample.rgb) == region ? 1 : -1);
+    return sample.a*32*(Decode(sample.rgb) == region ? 1 : -1);
 }
 float4 BorderPixel(SimpleVSOutput input) : COLOR0
 {

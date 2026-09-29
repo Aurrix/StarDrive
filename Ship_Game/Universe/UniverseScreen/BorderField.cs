@@ -247,7 +247,7 @@ internal sealed class BorderField
 [StarDataType]
 internal sealed class SavedBorderGeometry
 {
-    internal const int CurrentVersion = 1;
+    internal const int CurrentVersion = 2;
     [StarData] public int Version;
     [StarData] public byte[] Inputs;
     [StarData] public BorderField Field, KnownField;
@@ -258,13 +258,86 @@ internal sealed class SavedBorderGeometry
         using var stream = new MemoryStream();
         using var w = new BinaryWriter(stream);
         w.Write(CurrentVersion); w.Write(radius); w.Write(nodes.Length);
+        float quantum = Math.Max(1f, radius * 0.01f);
         for (int i = 0; i < nodes.Length; ++i)
         {
             w.Write(nodes[i].Source.Id); w.Write(nodes[i].KnownToPlayer);
-            w.Write(samples[i].Position.X); w.Write(samples[i].Position.Y);
-            w.Write(samples[i].Radius); w.Write(samples[i].Phase); w.Write(samples[i].Growth);
+            w.Write((int)(samples[i].Position.X / quantum)); w.Write((int)(samples[i].Position.Y / quantum));
+            w.Write((int)(samples[i].Radius / quantum)); w.Write(samples[i].Phase);
+            w.Write((int)(samples[i].Growth * 100));
         }
         return SHA256.HashData(stream.ToArray());
+    }
+}
+
+// Captured on the simulation thread; completed by the save worker while gameplay
+// is paused. The serialized fields and overview always describe the same scene.
+internal sealed class BorderSavePreparation
+{
+    readonly Empire[] Empires;
+    readonly (Empire.InfluenceNode[] Nodes, BorderField.Node[] Samples, float Radius)[] Inputs;
+    readonly SavedBorderGeometry[] Previous;
+    readonly BorderScene Scene;
+    readonly SavedBorderOverview PreviousOverview;
+    readonly float Radius;
+    readonly List<BorderVisualTile.Key> DetailKeys;
+
+    internal BorderSavePreparation(UniverseState state)
+    {
+        Empires = state.Empires.ToArr();
+        Radius = state.Size;
+        PreviousOverview = state.BorderOverviewCache;
+        var view = state.Screen.ExactVisibleWorldRect;
+        if (view.Width > 0 && view.Height > 0 && state.Screen.ScreenWidth > 0)
+        {
+            float pixel = (float)view.Width/state.Screen.ScreenWidth;
+            int level = BorderVisualTile.ChooseLevel(pixel);
+            DetailKeys = BorderVisualRenderer.Keys(new(view.X1,view.Y1,view.Width,view.Height),level,128);
+        }
+        Inputs = new (Empire.InfluenceNode[], BorderField.Node[], float)[Empires.Length];
+        Previous = new SavedBorderGeometry[Empires.Length];
+        var placeholders = new BorderSnapshot[Empires.Length];
+        for (int i = 0; i < Empires.Length; ++i)
+        {
+            Inputs[i] = Empires[i].CaptureBorderSaveInputs();
+            Previous[i] = Empires[i].SavedBorderCache;
+            placeholders[i] = new(Inputs[i].Nodes, Inputs[i].Radius);
+        }
+        Scene = new BorderScene(Empires, placeholders);
+    }
+
+    internal SavedBorderOverview Complete()
+    {
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        Log.Info($"Preparing border save: {Empires.Length} empires, {DetailKeys?.Count ?? 0} visible tiles");
+        for (int i = 0; i < Empires.Length; ++i)
+        {
+            var input = Inputs[i];
+            var snapshot = new BorderSnapshot(input.Nodes, input.Samples, input.Radius, Previous[i]);
+            Scene.Empires[i].Snapshot = snapshot;
+            Empires[i].BorderGeometryForSave = snapshot.SaveCache;
+        }
+        byte[] key = Scene.SaveKey();
+        bool reuse = PreviousOverview?.Version == SavedBorderOverview.CurrentVersion && PreviousOverview.Radius == Radius
+            && PreviousOverview.SceneKey != null && key.AsSpan().SequenceEqual(PreviousOverview.SceneKey);
+        int level = BorderVisualTile.ChooseLevel(Radius*2/450);
+        var keys = BorderVisualRenderer.Keys(new(-Radius,-Radius,Radius*2,Radius*2),level);
+        var tiles = reuse ? PreviousOverview.Tiles : new byte[keys.Count][];
+        var scratch = new BorderVisualTile.Scratch();
+        if (!reuse)
+            for (int i = 0; i < tiles.Length; ++i) tiles[i] = new BorderVisualTile(Scene,keys[i],scratch).Save();
+        var detail = new List<byte[]>();
+        if (DetailKeys != null)
+            foreach (var address in DetailKeys)
+                if (!keys.Contains(address)) detail.Add(new BorderVisualTile(Scene,address,scratch).Save());
+        Log.Info($"Border save prepared in {timer.ElapsedMilliseconds}ms: {tiles.Length} overview, {detail.Count} detail tiles");
+        return new() { Version = SavedBorderOverview.CurrentVersion, Radius = Radius, SceneKey = key,
+            Tiles = tiles, DetailTiles = detail.ToArray() };
+    }
+
+    internal void Release()
+    {
+        foreach (Empire empire in Empires) empire.BorderGeometryForSave = null;
     }
 }
 
@@ -275,6 +348,13 @@ internal sealed class BorderSnapshot
     public readonly InfluenceConnection[] Connections;
     public readonly BorderField Field, KnownField;
     public readonly float ProjectorRadius;
+
+    // Placeholder used only while capturing save inputs on the simulation thread.
+    internal BorderSnapshot(Empire.InfluenceNode[] nodes, float radius)
+    {
+        Nodes = nodes; ProjectorRadius = radius;
+        Connections = System.Array.Empty<InfluenceConnection>();
+    }
 
     public BorderSnapshot(Empire.InfluenceNode[] nodes, BorderField.Node[] samples, float projectorRadius,
                           SavedBorderGeometry saved = null)
@@ -339,8 +419,9 @@ internal sealed class BorderScene
         foreach (Entry e in Empires)
         {
             w.Write(e.Id); w.Write(e.Active); w.Write(e.Known); w.Write(e.Color.PackedValue);
-            w.Write(e.Snapshot != null);
-            if (e.Snapshot != null)
+            bool hasField = e.Active && e.Snapshot != null;
+            w.Write(hasField);
+            if (hasField)
             {
                 e.Snapshot.Field.WriteCacheKey(w);
                 e.Snapshot.KnownField.WriteCacheKey(w);
@@ -501,7 +582,7 @@ internal sealed class BorderScene
         return hash.ToHashCode();
     }
 
-    public BorderScene(Empire[] empires)
+    public BorderScene(Empire[] empires, BorderSnapshot[] snapshots = null)
     {
         RevealAll = empires.Length > 0 && empires[0].Universe.Debug;
         int count = empires.Length;
@@ -514,8 +595,9 @@ internal sealed class BorderScene
             var colonies = owner.GetPlanets();
             var colonyIds = new int[colonies.Count];
             for (int p = 0; p < colonies.Count; ++p) colonyIds[p] = colonies[p].Id;
-            Empires[i] = new Entry { Owner = owner, Id = owner.Id, Snapshot = owner.PreparedBorders,
-                CurrentNodes = owner.PreparedBorders?.Nodes ?? owner.BorderNodes, ColonyIds = colonyIds,
+            BorderSnapshot snapshot = snapshots == null ? owner.PreparedBorders : snapshots[i];
+            Empires[i] = new Entry { Owner = owner, Id = owner.Id, Snapshot = snapshot,
+                CurrentNodes = snapshot?.Nodes ?? owner.BorderNodes, ColonyIds = colonyIds,
                 Active = !owner.IsDefeated && owner.InfluenceActive,
                 Known = owner.isPlayer || owner.Universe.Player.IsKnown(owner),
                 Name = owner.Name, Color = owner.EmpireColor };
@@ -525,7 +607,7 @@ internal sealed class BorderScene
             {
                 Empire a = empires[i], b = empires[j];
                 Overlap[i, j] = a != b && (a.WeArePirates || b.WeArePirates || a.WeAreRemnants || b.WeAreRemnants || a.IsAtWarWith(b));
-                if (i == j || Overlap[i, j] || Empires[i].Snapshot == null) continue;
+                if (i == j || Overlap[i, j] || !Empires[i].Active || !Empires[j].Active || Empires[i].Snapshot == null) continue;
                 var shared = new List<BorderField.Node>();
                 foreach (Empire.InfluenceNode node in Empires[i].Snapshot.Nodes)
                 {

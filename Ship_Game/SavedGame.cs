@@ -46,6 +46,7 @@ namespace Ship_Game
 
         public readonly UniverseState State;
         public FileInfo SaveFile;
+        readonly BorderSavePreparation Borders;
 
         public static string DefaultSaveGameFolder => Dir.StarDriveAppData + "/Saved Games/";
 
@@ -53,6 +54,7 @@ namespace Ship_Game
         {
             // clean up and submit objects before saving
             State = screen.UState;
+            Borders = new BorderSavePreparation(State);
         }
 
         public void Save(string saveAs)
@@ -83,6 +85,20 @@ namespace Ship_Game
         }
 
         void SaveUniverseData(UniverseState state, FileInfo saveFile, bool collectMemory)
+        {
+            try
+            {
+                state.BorderOverviewForSave = Borders.Complete();
+                WriteUniverseData(state, saveFile, collectMemory);
+            }
+            finally
+            {
+                state.BorderOverviewForSave = null;
+                Borders.Release();
+            }
+        }
+
+        void WriteUniverseData(UniverseState state, FileInfo saveFile, bool collectMemory)
         {
             var t = new PerfTimer();
 

@@ -728,6 +728,8 @@ public sealed partial class Empire
                 }
                 else
                 {
+                    if (LoadedBorderGeometry != null)
+                        Log.Info($"Border field cache rejected for empire {Id}: saved version {LoadedBorderGeometry.Version}, current {SavedBorderGeometry.CurrentVersion}; inputs changed or incompatible cache");
                     LoadedBorderGeometry = null;
                     PendingBorders = BorderWorker.TryRun(() => new BorderSnapshot(nodes, samples, projectorRadius));
                 }
@@ -741,6 +743,27 @@ public sealed partial class Empire
         AddSensorsFromMoles(TempSensorNodes);
         SensorNodes = TempSensorNodes.ToArray();
         TempSensorNodes.Clear();
+    }
+
+    // Called on the simulation thread before asynchronous saving. Workers only
+    // receive these copied inputs, never enumerate live ship/colony collections.
+    internal (InfluenceNode[] Nodes, BorderField.Node[] Samples, float Radius) CaptureBorderSaveInputs()
+    {
+        if (ForceUpdateSensorRadiuses) UpdateSensorAndBorderRadiuses();
+        UpdateOurBorderNodes();
+        var nodes = new List<InfluenceNode>();
+        if (InfluenceActive && !IsDefeated)
+        {
+            nodes.AddRange(OurBorderSystems);
+            nodes.AddRange(OurBorderShips);
+        }
+        nodes.Sort((a,b) => a.Source.Id.CompareTo(b.Source.Id));
+        var inputs = nodes.ToArray();
+        var samples = new BorderField.Node[inputs.Length];
+        for (int i = 0; i < inputs.Length; ++i)
+            samples[i] = new(inputs[i].Position, inputs[i].Radius,
+                inputs[i].Source.Id * 0.754877666f + Id * 1.618033989f, GetBorderNodeGrowth(inputs[i]));
+        return (inputs, samples, GetProjectorRadius());
     }
 
     bool CanRetainBorderSnapshot(InfluenceNode[] nodes)

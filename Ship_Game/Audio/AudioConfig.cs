@@ -347,6 +347,10 @@ public class SoundEffect
 
     // Filename keys keep titles attached to the correct track when mods reorder a playlist.
     [StarData] public readonly Map<string, string> TrackTitles = new();
+    [StarData] public readonly Map<string, string> TrackArtists = new();
+    public string GetTrackArtist(string file)
+        => TrackArtists.TryGetValue(file, out string artist) && !string.IsNullOrWhiteSpace(artist)
+            ? artist : "Unknown artist";
 
     public string GetTrackTitle(string file)
     {

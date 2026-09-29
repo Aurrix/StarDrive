@@ -293,7 +293,7 @@ namespace Ship_Game.Commands.Goals
                 return false;
 
             if (AIControlsColonization
-                && (TargetPlanet.System.OwnerList.Any(o => o != Owner && !o.IsFaction)
+                && (TargetPlanet.System.OwnerList.Any(Owner.ShouldRespectColonialClaim)
                     || !GravityWellRouter.IsValidAutoColonizationTarget(Owner, TargetPlanet)))
                 return false;
 

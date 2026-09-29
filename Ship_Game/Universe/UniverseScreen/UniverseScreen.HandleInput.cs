@@ -440,7 +440,43 @@ namespace Ship_Game
                 HandleInputLookingAtPlanet(input);
             }
 
+            HandleBorderHover(input);
             return false;
+        }
+
+        string BorderHoverLabel;
+        long BorderHoverStarted, BorderHoverChecked;
+        Vector2 BorderHoverCursor;
+        Vector3d BorderHoverCamera;
+
+        void HandleBorderHover(InputState input)
+        {
+            if (!IsActive || LookingAtPlanet || IsCinematicModeEnabled || SelectingWithBox
+                || UState.P.DisablePoliticalBorders || UState.HidePoliticalBorders
+                || GlobalStats.InfluenceNodeAlpha <= 0.01f || PoliticalBorders == null
+                || input.LeftMouseDown || input.RightMouseDown
+                || input.MouseCurr.MiddleButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed
+                || input.WasAnyKeyPressed || input.MouseMoved
+                || input.ScrollIn || input.ScrollOut || SelectedShip != null || SelectedFleet != null
+                || SelectedShipList.NotEmpty || FindClickedShip(input) != null || FindPlanetUnderCursor() != null
+                || FindSolarSystemUnderCursor() != null || CheckFleetClicked() != null || GetSpaceBuildGoalUnderCursor() != null)
+            {
+                BorderHoverLabel = null;
+                return;
+            }
+            string text = PoliticalBorders.HoverText(UnprojectToWorldPosition(input.CursorPosition), UnprojectToWorldSize(1));
+            long now = Environment.TickCount64;
+            if (text != BorderHoverLabel || now-BorderHoverChecked > 250
+                || BorderHoverCursor != input.CursorPosition || BorderHoverCamera.X != CamPos.X
+                || BorderHoverCamera.Y != CamPos.Y || BorderHoverCamera.Z != CamPos.Z)
+            {
+                BorderHoverLabel = text;
+                BorderHoverStarted = now;
+                BorderHoverCursor = input.CursorPosition;
+                BorderHoverCamera = CamPos;
+            }
+            BorderHoverChecked = now;
+            if (text != null && now-BorderHoverStarted >= 350) ToolTip.CreateLowPriorityTooltip(text);
         }
 
         protected override GameCursor GetCurrentCursor()

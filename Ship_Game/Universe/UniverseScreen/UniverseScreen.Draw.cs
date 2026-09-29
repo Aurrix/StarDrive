@@ -61,27 +61,6 @@ namespace Ship_Game
                 DrawVisionCircle(node.Position, node.Radius);
             }
 
-            // Everything inside the player's political border is under full
-            // surveillance, including the broad links joining colony clusters.
-            Empire.InfluenceNode[] borderNodes = Player.BorderNodes;
-            for (int i = 0; i < borderNodes.Length; ++i)
-                DrawVisionCircle(borderNodes[i].Position,
-                    borderNodes[i].Radius * (1f + Empire.BorderShapeMaxVariation));
-
-            foreach (InfluenceConnection connection in Player.BorderConnections)
-            {
-                float minRadius = Player.GetBorderConnectionRadius(connection);
-                Vector2 a = connection.Node1.Position;
-                Vector2 bridge = connection.Node2.Position - a;
-                int steps = Math.Max(2, (int)Math.Ceiling(bridge.Length() / minRadius));
-                for (int step = 1; step < steps; ++step)
-                {
-                    float amount = step / (float)steps;
-                    float radius = Player.GetBorderConnectionRadiusAt(connection, amount);
-                    DrawVisionCircle(a + bridge * amount, radius);
-                }
-            }
-
             void DrawVisionCircle(Vector2 position, float radius)
             {
                 ProjectToScreenCoords(position, radius * 2f, out Vector2d nodePos, out double nodeRadius);
@@ -90,134 +69,75 @@ namespace Ship_Game
             }
         }
 
-        // Test changing these in Debug Solar by holding comma/period and using UP/DOWN keys
-        internal Blend BorderBlendSrc = Blend.SourceAlphaSaturation; // Blend.InverseDestinationColor;
-        internal Blend BorderBlendDest = Blend.One;
+        internal volatile BorderScene VisualBorderScene;
+        internal BorderVisualRenderer PoliticalBorders;
+        BorderScene PresentedBorderSource, PresentedBorderScene;
+        BorderScene LastNormalBorderScene;
 
-        // Draws SSP - Subspace Projector influence
+        // Loading-screen Draw owns GPU uploads. Never warm GPU resources on
+        // LoadGame's background thread or expose a partially populated scene.
+        internal bool PrepareLoadedBorderVisuals(GraphicsDevice graphics)
+        {
+            if (UState.P.DisablePoliticalBorders || UState.HidePoliticalBorders
+                || GlobalStats.InfluenceNodeAlpha <= 0.01f) return true;
+            if (!UState.Objects.PrepareLoadedBorders()) return false;
+            PresentedBorderSource = VisualBorderScene;
+            PresentedBorderScene ??= PresentedBorderSource.WithDebugVisibility(Debug);
+            var view = new RectF(-UState.Size, -UState.Size, UState.Size*2, UState.Size*2);
+            if (PoliticalBorders == null)
+            {
+                PoliticalBorders = new BorderVisualRenderer(graphics);
+                PoliticalBorders.RestoreOverview(UState.BorderOverviewCache, PresentedBorderScene, UState.Size);
+            }
+            PoliticalBorders.Update(PresentedBorderScene, UState.Size, view, view.W/450, overviewOnly: true);
+            UState.BorderOverviewCache = PoliticalBorders.SavedOverview;
+            return PoliticalBorders.DisplayedScene == PresentedBorderScene;
+        }
+
         void DrawColoredEmpireBorders(SpriteRenderer draw3d, GraphicsDevice graphics)
         {
             DrawBorders.Start();
             try
             {
-
-            graphics.SetRenderTarget(BorderRT);
-            graphics.Clear(Color.Transparent);
-
-            // Skip the whole pass when the slider is effectively at zero. Threshold is
-            // small enough that any non-zero slider value still produces a render — the
-            // user-visible alpha scaling happens at composite time in DrawColoredBordersRT.
-            if (GlobalStats.InfluenceNodeAlpha > 0.01f)
-            {
-                float currentZ = 0;
-
-                var frustum = VisibleWorldRect;
-
-                // Sort by MilitaryScore (weaker first, stronger drawn on top). Skip the player
-                // inside the loop and render them last so the player's influence always sits over
-                // every AI — matches the minimap rule in DrawMinimapInfluenceNodes.
-                Empire[] empires = UState.Empires.Sorted(e => e.MilitaryScore);
-                foreach (Empire empire in empires)
+                graphics.SetRenderTarget(BorderRT);
+                graphics.Clear(Color.Transparent);
+                if (GlobalStats.InfluenceNodeAlpha <= 0.01f || UState.P.DisablePoliticalBorders || UState.HidePoliticalBorders)
+                    return;
+                var v = ExactVisibleWorldRect;
+                var view = new RectF(v.X1, v.Y1, v.Width, v.Height);
+                Vector2d a = ProjectToScreenPosition(view.Center);
+                Vector2d b = ProjectToScreenPosition(view.Center + new Vector2(1000,0));
+                float worldPerPixel = 1000f / Math.Max(0.0001f, (float)Math.Abs(b.X-a.X));
+                BorderScene source = VisualBorderScene;
+                if (source != null && !source.RevealAll) LastNormalBorderScene = source;
+                // Debug simulation snapshots may contain expanded KnownFields.
+                // While paused, exiting debug must restore the last normal view,
+                // not relabel expanded debug knowledge as ordinary visibility.
+                if (!Debug && source?.RevealAll == true) source = LastNormalBorderScene;
+                if (source == null)
                 {
-                    if (empire == Player)
-                        continue;
-                    if (!Debug && !Player.IsKnown(empire))
-                        continue;
-                    DrawEmpireInfluence(empire);
+                    // Also remove the minimap's cached debug presentation when
+                    // there is no safe ordinary snapshot to restore yet.
+                    PoliticalBorders?.Dispose();
+                    PoliticalBorders = null;
+                    return;
                 }
-                DrawEmpireInfluence(Player);
-
-                void DrawEmpireInfluence(Empire empire)
+                if (source != null && (PresentedBorderSource != source || PresentedBorderScene.RevealAll != Debug))
                 {
-                    empire.BorderNodeCache.Update(empire);
-
-                    Empire.InfluenceNode[] nodes = empire.BorderNodeCache.BorderNodes;
-                    if (nodes.Length == 0)
-                        return;
-
-                    draw3d.Begin(ViewProjection);
-
-                    // since we draw every empire's influence in its own layer, depth is not needed
-                    // drawing every empire in its own layer will solve almost all artifact issues
-                    RenderStates.BasicBlendMode(graphics, additive: false, depthWrite: false);
-
-                    // enable additive only for the alpha channel, this will smoothly blend multiple
-                    // overlapping gradient edges into nice blobs
-                    RenderStates.EnableSeparateAlphaBlend(graphics, BorderBlendSrc, BorderBlendDest);
-                    RenderStates.EnableAlphaTest(graphics, CompareFunction.Greater);
-
-                    Color empireColor = empire.EmpireColor.Alpha(GlobalStats.InfluenceNodeAlpha);
-                    float fillAlpha = GlobalStats.InfluenceNodeAlpha * 0.58f;
-                    // One linearly-filtered field texture produces a smooth inward
-                    // fade without the square alpha bands of the old strip mesh.
-                    Texture2D fillTexture = empire.BorderNodeCache.GetFillTexture(graphics);
-                    if (fillTexture != null)
-                    {
-                        Quad3D fillQuad = new(empire.BorderNodeCache.FillBounds, currentZ);
-                        draw3d.Draw(fillTexture, fillQuad, SpriteRenderer.DefaultCoords,
-                                    empire.EmpireColor.Alpha(fillAlpha));
-
-                        Texture2D occupation = empire.BorderNodeCache.GetOccupationTexture(graphics);
-                        if (occupation != null)
-                            draw3d.Draw(occupation, fillQuad, SpriteRenderer.DefaultCoords,
-                                        Color.Black.Alpha(GlobalStats.InfluenceNodeAlpha * 0.95f));
-                    }
-
-                    // Draw one clear perimeter around the UNION of all nearby
-                    // planets and projector stations. Marching-squares output has
-                    // no internal circle/bridge edges, so it reads as one territory.
-                    Vector2[] outline = empire.BorderNodeCache.OutlineSegments;
-                    float lineThickness = Math.Max(960f, (float)CamPos.Z / 65f);
-                    float influenceRadius = empire.GetProjectorRadius();
-                    float frequency = 1f / Math.Max(influenceRadius * 0.45f, 1f);
-                    float waveAmplitude = influenceRadius * 0.007f;
-                    float waveSeed = empire.Id * 1.731f;
-                    Empire[] rivals = empire.BorderNodeCache.OutlineRivals;
-                    for (int i = 0; i + 1 < outline.Length; i += 2)
-                    {
-                        Vector2 a = WavePoint(outline[i]);
-                        Vector2 b = WavePoint(outline[i + 1]);
-                        Empire rival = rivals.Length > i / 2 ? rivals[i / 2] : null;
-                        Vector2 midpoint = (outline[i] + outline[i + 1]) * 0.5f;
-                        bool ordinarySharedFrontier = rival != null
-                            && !empire.BordersOverlapAt(rival, midpoint);
-                        // Both independently generated contours describe the same
-                        // peaceful frontier. Draw it once to avoid doubled/woven lines.
-                        if (ordinarySharedFrontier && empire.Id > rival.Id)
-                            continue;
-                        Color lineColor = rival == null
-                            ? empireColor
-                            : Color.Lerp(empire.EmpireColor, rival.EmpireColor, 0.5f)
-                                   .Alpha(GlobalStats.InfluenceNodeAlpha);
-                        // Solid core only: the field texture handles the inward
-                        // gradient, and no glow is allowed to bleed outside.
-                        draw3d.DrawLine(new Vector3(a, currentZ + 1f), new Vector3(b, currentZ + 1f),
-                                        lineColor, lineThickness);
-                    }
-
-                    Vector2 WavePoint(Vector2 point)
-                    {
-                        float xWave = (float)Math.Sin(point.Y * frequency + waveSeed);
-                        float yWave = (float)Math.Sin(point.X * frequency * 1.13f + waveSeed * 0.67f);
-                        return point + new Vector2(xWave, yWave) * waveAmplitude;
-                    }
-
-                    draw3d.End();
-                    RenderStates.DisableSeparateAlphaChannelBlend(graphics);
+                    PresentedBorderSource = source;
+                    PresentedBorderScene = source.WithDebugVisibility(Debug);
                 }
-            }
-
+                PoliticalBorders ??= new BorderVisualRenderer(graphics);
+                PoliticalBorders.Update(PresentedBorderScene, UState.Size, view, worldPerPixel);
+                UState.BorderOverviewCache = PoliticalBorders.SavedOverview;
+                PoliticalBorders.Draw(draw3d, ViewProjection, view, worldPerPixel);
             }
             finally
             {
-                // Present() is illegal while an off-screen target remains bound.
-                // Always restore the back buffer even if border contour generation
-                // or drawing aborts midway through this pass.
                 graphics.SetRenderTarget(null);
                 DrawBorders.Stop();
             }
         }
-
         void DrawExplosions(SpriteBatch batch)
         {
             DrawExplosionsPerf.Start();
@@ -433,8 +353,7 @@ namespace Ship_Game
             OverlaysGroupTotalPerf.Start();
             {
                 UpdateFogOfWarInfluences(batch, graphics);
-                if (viewState >= UnivScreenState.PlanetView) // strategic borders are visible from the starting view
-                    DrawColoredEmpireBorders(sr, graphics);
+                DrawColoredEmpireBorders(sr, graphics);
 
                 // §3.7 step 1: bloom processes MainTarget -> PostBloomTarget,
                 // which then becomes the input to the fog-of-war composite.
@@ -583,6 +502,7 @@ namespace Ship_Game
             base.Draw(batch, elapsed);  // UIElementV2 Draw
 
             if (showGeneralUI) EmpireUI.DrawDashboardPopover(batch);
+            if (showGeneralUI) EmpireUI.DrawDashboardPlaylist(batch);
 
             DrawUI.Stop();
         }
@@ -771,7 +691,7 @@ namespace Ship_Game
                 }
 
                 // draw blue positive influence nodes from bordernodes
-                if (viewState >= UnivScreenState.SectorView)
+                if (viewState >= UnivScreenState.SectorView && !UState.P.DisablePoliticalBorders && !UState.HidePoliticalBorders)
                 {
                     var transparentBlue = new Color(30, 30, 150, 150).Premultiplied();
                     var transparentGreen = new Color(0, 200, 0, 20).Premultiplied();

@@ -69,6 +69,7 @@ namespace Ship_Game.AI
             if (BorderRouteCheckTimer > 0f)
                 return;
             BorderRouteCheckTimer = BorderRouteCheckInterval;
+            GravityWellRouter.RequestPassageIfStranded(Owner);
 
             if (GravityWellRouter.IsInsideClosedBorder(Owner))
             {

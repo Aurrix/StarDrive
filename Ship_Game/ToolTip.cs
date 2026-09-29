@@ -31,8 +31,26 @@ namespace Ship_Game
 
         static readonly Array<TipItem> ActiveTips = new();
         static TipItem LastHovered;
+        static TipItem BackgroundTip;
+        static bool CreatingBackgroundTip;
 
         internal static bool SuppressNewTips { get; set; }
+
+        // Map territory is descriptive background and must yield to object/UI tips.
+        internal static void CreateLowPriorityTooltip(string text)
+        {
+            foreach (TipItem item in ActiveTips)
+                if (item.HoveredThisFrame && item.RawText != text) return;
+            CreatingBackgroundTip = true;
+            try
+            {
+                CreateTooltip(text);
+                BackgroundTip = ActiveTips.Find(t => t.RawText == text);
+                // The map caller has already required 350 ms of stationary hovering.
+                BackgroundTip?.HoverDelayElapsed();
+            }
+            finally { CreatingBackgroundTip = false; }
+        }
 
         public static void ShipYardArcTip()
             => CreateTooltip(GlobalStats.AltArcControl ? GameText.ArcDragTipAltControl : GameText.ArcDragTip);
@@ -60,6 +78,13 @@ namespace Ship_Game
         {
             if (SuppressNewTips)
                 return;
+
+            if (!CreatingBackgroundTip && BackgroundTip != null)
+            {
+                ActiveTips.Remove(BackgroundTip);
+                if (LastHovered == BackgroundTip) LastHovered = null;
+                BackgroundTip = null;
+            }
 
             string rawText = tip.Text;
             if (rawText.IsEmpty())
@@ -136,6 +161,7 @@ namespace Ship_Game
         {
             ActiveTips.Clear();
             LastHovered = null;
+            BackgroundTip = null;
         }
 
         class TipItem
@@ -157,6 +183,11 @@ namespace Ship_Game
             {
                 MinShowTime = minShowTime;
                 TipFont = GetTipFont;
+            }
+
+            public void HoverDelayElapsed()
+            {
+                if (!Visible) LifeTime = TipShowTimePoint + 0.001f;
             }
 
             // @return FALSE: tip died, TRUE: tip is OK

@@ -777,6 +777,17 @@ namespace Ship_Game
 
         public bool AmbientMusicPaused { get; private set; }
         int AmbientTrackIndex;
+        public int SelectedAmbientTrack => AmbientTrackIndex;
+        public void SelectAmbientTrack(int index)
+        {
+            int count = GameAudio.GetMusicTracks("AmbientMusic").Length;
+            if (index < 0 || index >= count) return;
+            Music.Stop(fadeout: false);
+            AmbientTrackIndex = index;
+            AmbientMusicPaused = false;
+            CurrentMusic = "AmbientMusic";
+            Music = GameAudio.PlayMusic(CurrentMusic, index);
+        }
         public string AmbientTrackTitle
         {
             get

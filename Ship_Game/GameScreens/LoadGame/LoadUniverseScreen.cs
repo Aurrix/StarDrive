@@ -17,6 +17,7 @@ namespace Ship_Game
         string AdviceText;
         Texture2D LoadingImage;
         TaskResult<UniverseScreen> AsyncUniverse;
+        bool BordersReady;
 
         public LoadUniverseScreen(FileInfo activeFile) : base(null/*no parent*/, toPause: null)
         {
@@ -45,7 +46,7 @@ namespace Ship_Game
 
         public override bool HandleInput(InputState input)
         {
-            if (AsyncUniverse.IsComplete && AsyncUniverse.Result != null && input.InGameSelect)
+            if (BordersReady && AsyncUniverse.IsComplete && AsyncUniverse.Result != null && input.InGameSelect)
             {
                 OnLoadSuccess(AsyncUniverse.Result);
                 return true;
@@ -92,6 +93,9 @@ namespace Ship_Game
             if (!GameBase.Base.IsDeviceGood)
                 return; // device is unavailable
 
+            if (AsyncUniverse.IsComplete && AsyncUniverse.Result != null && !BordersReady)
+                BordersReady = AsyncUniverse.Result.PrepareLoadedBorderVisuals(batch.GraphicsDevice);
+
             if (!batch.SafeBegin())
                 return; // something failed bad
 
@@ -99,7 +103,9 @@ namespace Ship_Game
             batch.Draw(LoadingImage, artRect, Color.White);
             var meterBar = new Rectangle(ScreenWidth / 2 - 150, ScreenHeight - 25, 300, 25);
 
-            float percentLoaded = Loader.ProgressPercent;
+            // Estimated substeps can finish before screen initialization does.
+            // Only display 100% once the result is actually available to enter.
+            float percentLoaded = BordersReady ? 1f : System.Math.Min(.99f, Loader.ProgressPercent);
             var pb = new ProgressBar(meterBar)
             {
                 Max = 100f,
@@ -113,7 +119,7 @@ namespace Ship_Game
             if (AsyncUniverse.IsComplete)
             {
                 cursor.Y -= Fonts.Pirulen16.LineSpacing + 10f;
-                string begin = Localizer.Token(GameText.ClickToContinue);
+                string begin = BordersReady ? Localizer.Token(GameText.ClickToContinue) : "Preparing empire borders...";
                 cursor.X = ScreenCenter.X - Fonts.Pirulen16.MeasureString(begin).X / 2f;
                 batch.DrawString(Fonts.Pirulen16, begin, cursor, CurrentFlashColor);
             }

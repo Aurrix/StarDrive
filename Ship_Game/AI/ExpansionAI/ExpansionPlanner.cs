@@ -201,7 +201,7 @@ namespace Ship_Game.AI.ExpansionAI
         {
             return s.IsExploredBy(Owner)
                 && !s.HasPlanetsOwnedBy(Owner)
-                && !s.OwnerList.Any(o => o != Owner && !o.IsFaction)
+                && !s.OwnerList.Any(Owner.ShouldRespectColonialClaim)
                 && s.PlanetList.Any(p => p.Habitable)
                 && !s.OwnerList.Any(o => !o.IsFaction && Owner.IsAtWarWith(o))
                 && StrongEnoughToClaim(s);
@@ -237,7 +237,7 @@ namespace Ship_Game.AI.ExpansionAI
             var potentialPlanets = new Array<Planet>();
             foreach (SolarSystem system in ownedSystems)
             {
-                if (system.OwnerList.Any(o => o != Owner && !o.IsFaction))
+                if (system.OwnerList.Any(Owner.ShouldRespectColonialClaim))
                     continue;
                 foreach (Planet p in system.PlanetList)
                     if (CanBeColonized(p) && StrongEnoughToClaim(p.System))

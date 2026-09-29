@@ -131,8 +131,11 @@ namespace Ship_Game
             New = Original.GetClone();
         }
 
+        readonly UniverseScreen BorderUniverse;
+
         public OptionsScreen(UniverseScreen universe) : base(universe, 720, 640)
         {
+            BorderUniverse = universe;
             Fade              = false;
             IsPopup           = true;
             TransitionOnTime  = 0f;
@@ -288,6 +291,10 @@ namespace Ship_Game
             right.AddCheckbox(() => GlobalStats.EnableEngineTrails,           title: GameText.EngineTrails, tooltip: GameText.TT_EngineTrails);
             right.AddCheckbox(() => GlobalStats.DisableScreenPanning,         title: GameText.DisableScreenPanningOption, tooltip: GameText.DisableScreenPanningOptionTip);
             right.AddCheckbox(() => GlobalStats.RouteAroundGravityWells,      title: GameText.Pathfinder, tooltip: GameText.PathfinderTip);
+            if (BorderUniverse != null)
+                right.AddCheckbox(() => BorderUniverse.UState.P.DisablePoliticalBorders,
+                    title: "Disable political borders",
+                    tooltip: "Disable territorial borders, access restrictions, border diplomacy and station transfers for this game.");
 
             var apply = Add(new UIButton(ButtonStyle.Default, new Vector2(RightArea.Right - 206, RightArea.Bottom + 60), GameText.ApplySettings));
             apply.OnClick = button => RunOnNextFrame(ApplyOptions);

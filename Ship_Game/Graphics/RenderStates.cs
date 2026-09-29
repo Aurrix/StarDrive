@@ -122,7 +122,6 @@ namespace Ship_Game.Graphics
         // node-gradient textures into smooth blobs: SourceAlphaSaturation/One
         // makes the alpha channel grow additively until it saturates at 1.0,
         // while RGB continues to blend normally so colors don't oversaturate.
-        // SolarDebug.cs scrubs BorderBlendSrc/BorderBlendDest live via this path.
         static readonly ConcurrentDictionary<(Blend, Blend), BlendState> SeparateAlphaCache = new();
 
         public static void EnableSeparateAlphaBlend(GraphicsDevice device, Blend srcAlphaBlend, Blend dstAlphaBlend)

@@ -83,6 +83,9 @@ namespace Ship_Game.Gameplay
         [StarData] public bool HaveRejected_TRADE;
         [StarData] public bool haveRejectedDemandTech;
         [StarData] public bool HaveRejected_OpenBorders;
+        [StarData] public float BorderAccessNextRequest;
+        [StarData] public int BorderAccessRefusals;
+        [StarData] public bool BorderAccessRequested;
         [StarData] public bool HaveRejected_Alliance;
         [StarData] public int NumberStolenClaims;
 
@@ -250,7 +253,10 @@ namespace Ship_Game.Gameplay
             {
                 case TreatyType.Alliance:      Treaty_Alliance    = value; HandleAlliance(); break;
                 case TreatyType.NonAggression: Treaty_NAPact      = value;                   break;
-                case TreatyType.OpenBorders:   Treaty_OpenBorders = value;                   break;
+                case TreatyType.OpenBorders:
+                    if (Treaty_OpenBorders != value) TurnsInOpenBorders = 0;
+                    Treaty_OpenBorders = value;
+                    break;
                 case TreatyType.Peace:         Treaty_Peace       = value; HandlePeace();    break;
                 case TreatyType.Trade:         Treaty_Trade       = value; HandleTrade();    break;
             }
@@ -1415,12 +1421,15 @@ namespace Ship_Game.Gameplay
             return them.ExpansionScore > us.ExpansionScore * 1.25f && TotalAnger > 20f;
         }
 
+        internal bool ShouldCancelOpenBordersByTrust
+            => Treaty_OpenBorders && TurnsInOpenBorders >= 50 && Trust < 5 && TotalAnger >= 20;
+
         void UpdateTreatiesByTrust(Empire us, Empire them)
         {
             if (turnsSinceLastContact < 10)
                 return;
 
-            if (Treaty_OpenBorders && Trust < 5)
+            if (ShouldCancelOpenBordersByTrust)
             {
                 if (them.isPlayer)
                     DiplomacyScreen.Show(us, "TRUST_LOW_OPEN_BORDERS");

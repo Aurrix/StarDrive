@@ -31,6 +31,7 @@ namespace Ship_Game
         readonly ToggleButton ExoticScreen;
         readonly ToggleButton GravityWells;
         readonly ToggleButton RangeOverley;
+        readonly ToggleButton PoliticalBorders;
 
         readonly SubTexture MiniMapHousing;
         readonly SubTexture Node;
@@ -55,6 +56,8 @@ namespace Ship_Game
             ZoomToShip     = listL.Add(new ToggleButton(ToggleButtonStyle.ButtonC, "Minimap/icons_zoomctrl", ZoomToShip_OnClick));
             GravityWells   = listL.Add(new ToggleButton(ToggleButtonStyle.Button,  "UI/icon_ftloverlay", GravityWells_OnClick));
             RangeOverley   = listL.Add(new ToggleButton(ToggleButtonStyle.Button,  "UI/icon_rangeoverlay", RangeOverly_OnClick));
+            PoliticalBorders = listL.Add(new ToggleButton(ToggleButtonStyle.Button, "UI/flagicon",
+                _ => Universe.UState.HidePoliticalBorders = !Universe.UState.HidePoliticalBorders));
 
             UIList listR = AddList(new Vector2(Housing.X + 38, Housing.Y + 70));
             listR.Name = "MiniMapButtonsRight";
@@ -87,13 +90,6 @@ namespace Ship_Game
             Universe.DrawRectangle(inflateMap, Color.Black, Color.Black);
             batch.Draw(MiniMapHousing, Housing, Color.White);
             
-            foreach (SolarSystem system in Universe.UState.Systems)
-            {
-                Vector2 miniSystemPos = WorldToMiniPos(system.Position);
-                var star = new Rectangle((int)miniSystemPos.X, (int)miniSystemPos.Y, 2, 2);
-                batch.FillRectangle(star, Color.Gray);
-            }
-
             try
             {
                 // UI/node1 is stored non-premultiplied in the §4.6 #7
@@ -108,6 +104,17 @@ namespace Ship_Game
                 batch.SafeBegin(SpriteBlendMode.NonPremultiplied);
 
                 DrawMinimapInfluenceNodes(batch);
+                batch.SafeEnd();
+                if (!Universe.UState.HidePoliticalBorders && !Universe.UState.P.DisablePoliticalBorders
+                    && GlobalStats.InfluenceNodeAlpha > 0.01f)
+                    Universe.PoliticalBorders?.DrawMinimap(new RectF(ActualMap.X, ActualMap.Y, ActualMap.Width, ActualMap.Height),
+                        MiniMapZero, Scale, GlobalStats.InfluenceNodeAlpha);
+                batch.SafeBegin(SpriteBlendMode.NonPremultiplied);
+                foreach (SolarSystem system in Universe.UState.Systems)
+                {
+                    Vector2 position = WorldToMiniPos(system.Position);
+                    batch.FillRectangle(new Rectangle((int)position.X,(int)position.Y,2,2),Color.Gray);
+                }
                 DrawSelected(batch, Player);
                 DrawWarnings(batch);
 
@@ -153,6 +160,7 @@ namespace Ship_Game
             GravityWells.IsToggled     = Universe.ShowingFTLOverlay;
 
             RangeOverley.IsToggled         = Universe.ShowingRangeOverlay;
+            PoliticalBorders.IsToggled = !Universe.UState.HidePoliticalBorders && !Universe.UState.P.DisablePoliticalBorders;
             
             base.Draw(batch, elapsed);
         }
@@ -232,15 +240,7 @@ namespace Ship_Game
                               Empire.InfluenceNode[] nodes, bool excludeProjectors)
         {
             Vector2 nodeOrigin = Node.CenterF;
-            // Halo alpha kept low (~30%) so overlapping nodes stay readable under
-            // NonPremultiplied blend — at higher alpha the territory layer would
-            // saturate the sensor halos underneath into a single uniform blob.
-            // The empire-color halo and black darkening overlay scale with the
-            // border-strength slider, but floored at 0.5 so the minimap never
-            // loses empire-territory readability even when the universe screen
-            // borders are dimmed all the way down.
-            byte haloAlpha = (byte)(80 * GlobalStats.InfluenceNodeAlpha.LowerBound(0.5f));
-            var transparentBlack = new Color(Color.Black, haloAlpha);
+            // Neutral sensor halos are independent of political border strength.
 
             for (int i = 0; i < nodes.Length; i++)
             {
@@ -250,7 +250,8 @@ namespace Ship_Game
 
                 bool combat = false;
                 float intensity = 0.005f;
-                var ec = new Color(empire.EmpireColor, haloAlpha);
+                int sensorAlpha = 24; // This pass explicitly uses NonPremultiplied blending.
+                var ec = new Color(130, 145, 155, sensorAlpha);
                 if (empire.isPlayer)
                 {
                     if (node.Source is Ship ship)
@@ -291,10 +292,7 @@ namespace Ship_Game
                 
                 {
                     float radius = Math.Min(0.09f, nodeRad);
-                    // Empire-colored gradient halo + black darkening overlay; both
-                    // alphas scaled by the border-color-strength slider above.
                     batch.Draw(Node1, nodePos, ec, 0f, nodeOrigin, radius, SpriteEffects.None, 1f);
-                    batch.Draw(Node1, nodePos, transparentBlack, 0f, nodeOrigin, nodeRad, SpriteEffects.None, 1f);
                 }
             }
         }
@@ -322,7 +320,6 @@ namespace Ship_Game
         void DrawMinimapEmpireNodes(SpriteBatch batch, Empire e)
         {
             DrawMinimapNodes(batch, e, e.SensorNodes, excludeProjectors: true);
-            DrawMinimapNodes(batch, e, e.BorderNodes, excludeProjectors:false);
         }
 
         void ZoomToShip_OnClick(ToggleButton toggleButton)
@@ -414,6 +411,9 @@ namespace Ship_Game
 
         public override bool HandleInput(InputState input)
         {
+            PoliticalBorders.IsToggled = !Universe.UState.HidePoliticalBorders && !Universe.UState.P.DisablePoliticalBorders;
+            if (PoliticalBorders.Rect.HitTest(input.CursorPosition))
+                ToolTip.CreateTooltip("Show / hide political borders. Border rules remain active unless disabled in game options.");
             if (!Housing.HitTest(input.CursorPosition))
                 return false;
 

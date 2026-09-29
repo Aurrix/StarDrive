@@ -11,6 +11,74 @@ namespace UnitTests.Data
     [TestClass]
     public class TestAudioConfig : StarDriveTest
     {
+        sealed class TestOutput : IWavePlayer
+        {
+            public IWaveProvider Provider;
+            public WaveFormat OutputWaveFormat => Provider?.WaveFormat;
+            public bool Disposed;
+            public float Volume { get; set; } = 1;
+            public PlaybackState PlaybackState { get; private set; }
+            public event EventHandler<StoppedEventArgs> PlaybackStopped;
+            public void Init(IWaveProvider provider) => Provider = provider;
+            public void Play() => PlaybackState = PlaybackState.Playing;
+            public void Pause() => PlaybackState = PlaybackState.Paused;
+            public void Stop()
+            {
+                PlaybackState = PlaybackState.Stopped;
+                PlaybackStopped?.Invoke(this,new StoppedEventArgs());
+            }
+            public void Dispose() { Stop(); Disposed = true; }
+            public bool ReadAudible()
+            {
+                var bytes = new byte[44100 * 2 * sizeof(float)];
+                int count = Provider.Read(bytes,0,bytes.Length);
+                for (int i = 0; i < count; i += sizeof(float))
+                    if (Math.Abs(BitConverter.ToSingle(bytes,i)) > 0.00001f) return true;
+                return false;
+            }
+        }
+
+        [TestMethod]
+        public void MusicUsesIndependentBufferedOutputAndVideoMute()
+        {
+            var effects = new TestOutput();
+            var music = new TestOutput();
+            using var config = new AudioConfig();
+            using (var engine = new NAudioPlaybackEngine(latency => latency switch
+            {
+                50 => effects,
+                300 => music,
+                _ => throw new AssertFailedException("Unexpected output latency")
+            }))
+            {
+                string file = GetAudioPath("Music/AmbientMusic.0.m4a").FullName;
+                using var track = engine.Play(config.GetCategory("Music"),null,file,1);
+                Assert.IsNotNull(track);
+                Assert.IsTrue(music.ReadAudible(),"Music must reach its dedicated output");
+                Assert.IsFalse(effects.ReadAudible(),"Music leaked into the effects mixer");
+                using var effect = engine.Play(config.GetCategory("Weapons"),null,
+                    GetAudioPath("UI/sd_ui_notification_research_01.m4a").FullName,1);
+                Assert.IsNotNull(effect);
+                Assert.IsTrue(effects.ReadAudible());
+                engine.MixerMasterVolume = 0;
+                Assert.IsFalse(music.ReadAudible(),"Video mute must silence both outputs");
+                Assert.IsFalse(effects.ReadAudible());
+                engine.MixerMasterVolume = 1;
+                Assert.IsTrue(music.ReadAudible(),"Music must resume after video mute");
+            }
+            Assert.IsTrue(music.Disposed && effects.Disposed);
+        }
+
+        [TestMethod]
+        public void MusicOutputInitializationFailureReleasesEffectsOutput()
+        {
+            var effects = new TestOutput();
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
+                new NAudioPlaybackEngine(latency => latency == 50 ? effects
+                    : throw new InvalidOperationException("Device unavailable")));
+            Assert.IsTrue(effects.Disposed);
+        }
+
         static bool IsSupportedFileExtension(string fileName)
         {
             return fileName.EndsWith(".m4a")
@@ -29,6 +97,10 @@ namespace UnitTests.Data
             AssertEqual("Beyond the Frontier", ambient.GetTrackTitle("Music/AmbientMusic.0.m4a"));
             AssertEqual("Humble Beginnings", ambient.GetTrackTitle("Music/sd2-1.m4a"));
             AssertEqual("My Mod Track", ambient.GetTrackTitle("Music/My_Mod_Track.m4a"));
+            AssertEqual("Jeff Dodson", ambient.GetTrackArtist("Music/AmbientMusic.0.m4a"));
+            AssertEqual("Marius Masalar", ambient.GetTrackArtist("Music/sd2-1.m4a"));
+            AssertEqual("Gustav Holst", ambient.GetTrackArtist("Music/sd2-3.m4a"));
+            AssertEqual("Unknown artist", ambient.GetTrackArtist("Music/My_Mod_Track.m4a"));
             foreach (string track in ambient.Sounds)
                 AssertTrue(ambient.TrackTitles.ContainsKey(track), $"Missing display title for {track}");
             foreach (AudioCategory category in config.Categories)

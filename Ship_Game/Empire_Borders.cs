@@ -47,6 +47,14 @@ public sealed partial class Empire
     int PendingBorderGeometry;
     Task<BorderSnapshot> PendingBorders;
     internal volatile BorderSnapshot PreparedBorders;
+    SavedBorderGeometry LoadedBorderGeometry;
+    internal SavedBorderGeometry BorderGeometryForSave;
+    [StarData] internal SavedBorderGeometry SavedBorderCache
+    {
+        get => BorderGeometryForSave ?? PreparedBorders?.SaveCache ?? LoadedBorderGeometry;
+        set => LoadedBorderGeometry = value;
+    }
+    internal bool HasPendingBorderGeometry => PreparedBorders == null || PendingBorders != null;
 
     /// <summary>
     /// How often the ThreatMatrix is updated.
@@ -64,13 +72,15 @@ public sealed partial class Empire
 
     public bool HasBorderAccessTo(Empire borderOwner, bool civilianFreighter = false)
     {
+        if (Universe.P.DisablePoliticalBorders) return true;
         if (borderOwner == null || borderOwner == this || WeArePirates || borderOwner.IsDefeated
             || !borderOwner.InfluenceActive || !IsKnown(borderOwner))
             return true;
         if (IsAtWarWith(borderOwner) || IsAlliedWith(borderOwner)
             || IsOpenBordersTreaty(borderOwner))
             return true;
-        return civilianFreighter && IsTradeTreaty(borderOwner);
+        return civilianFreighter && IsTradeTreaty(borderOwner)
+            || CanProvokeBorderOwner(borderOwner);
     }
 
     readonly Array<InfluenceNode> OurBorderSystems = new(); // all of our systems
@@ -133,9 +143,6 @@ public sealed partial class Empire
         {
             ThreatMatrixUpdateTimer = ResetThreatMatrixSeconds;
 
-            // Political territory provides complete strategic surveillance, not
-            // merely the smaller hardware sensor bubbles around individual assets.
-            ScanFromOwnedBorders(AI.ThreatMatrix);
 
             us.ThreatMatrixPerf.Start();
             AI.ThreatMatrix.Update(new(time:ResetThreatMatrixSeconds));
@@ -223,42 +230,6 @@ public sealed partial class Empire
             {
                 threatMatrix.SetSeen(maybeEnemy, fromBackgroundThread: false);
             }
-        }
-    }
-
-    void ScanFromOwnedBorders(ThreatMatrix threatMatrix)
-    {
-        if (!InfluenceActive)
-            return;
-
-        Ship[] ships = Universe.Ships;
-        for (int i = 0; i < ships.Length; ++i)
-        {
-            Ship ship = ships[i];
-            if (ship == null || !ship.Active || ship.Dying || ship.Loyalty == this
-                || !IsInBorderTerritory(ship.Position))
-                continue;
-
-            threatMatrix.SetSeen(ship, fromBackgroundThread: false);
-            // The scan runs once per second. A little grace prevents a one-frame
-            // visibility flicker from update-order differences at the interval.
-            ship.KnownByEmpires.SetSeen(this, ResetThreatMatrixSeconds + 0.25f);
-            if (AlliedWithPlayer)
-                ship.KnownByEmpires.SetSeen(Universe.Player, ResetThreatMatrixSeconds + 0.25f);
-            if (!IsKnown(ship.Loyalty))
-                FirstContact.SetReadyForContact(ship.Loyalty);
-        }
-
-        // Territory also explores celestial objects enclosed by it.
-        IReadOnlyList<SolarSystem> systems = Universe.Systems;
-        for (int i = 0; i < systems.Count; ++i)
-        {
-            SolarSystem system = systems[i];
-            if (!IsInBorderTerritory(system.Position))
-                continue;
-            system.SetExploredBy(this);
-            for (int p = 0; p < system.PlanetList.Count; ++p)
-                system.PlanetList[p].SetExploredBy(this);
         }
     }
 
@@ -458,6 +429,7 @@ public sealed partial class Empire
 
     public bool IsInBorderTerritory(Vector2 point)
     {
+        if (Universe.P.DisablePoliticalBorders) return false;
         float ourStrength = GetBorderClaimStrength(point);
         if (ourStrength < 0f)
             return false;
@@ -664,7 +636,7 @@ public sealed partial class Empire
     /// Border nodes are empire's projector influence from SSP's and Planets
     /// Sensor nodes are used to show the sensor range of things. Ship, planets, spies, etc
     /// </summary>
-    void ResetBorders()
+    internal void ResetBorders()
     {
         if (ForceUpdateSensorRadiuses)
             UpdateSensorAndBorderRadiuses();
@@ -678,6 +650,7 @@ public sealed partial class Empire
         }
 
         BorderNodes = TempBorderNodes.ToArray();
+        System.Array.Sort(BorderNodes, (a,b) => a.Source.Id.CompareTo(b.Source.Id));
         TempBorderNodes.Clear();
         var topology = new HashCode();
         foreach (InfluenceNode node in BorderNodes)
@@ -731,6 +704,7 @@ public sealed partial class Empire
                 geometry.Add((int)(nodes[i].Position.X / quantum));
                 geometry.Add((int)(nodes[i].Position.Y / quantum));
                 geometry.Add((int)(nodes[i].Radius / quantum));
+                geometry.Add((int)(GetBorderNodeGrowth(nodes[i]) * 100));
             }
             int geometrySignature = geometry.ToHashCode();
             if (PreparedBorders != null && BorderGeometrySignature == geometrySignature)
@@ -744,7 +718,19 @@ public sealed partial class Empire
                 PendingBorderTopology = signature;
                 PendingBorderGeneration = BorderGeneration;
                 PendingBorderGeometry = geometrySignature;
-                PendingBorders = BorderWorker.TryRun(() => new BorderSnapshot(nodes, samples, projectorRadius));
+                if (LoadedBorderGeometry?.Matches(SavedBorderGeometry.Key(nodes, samples, projectorRadius)) == true)
+                {
+                    PreparedBorders = new BorderSnapshot(nodes, samples, projectorRadius, LoadedBorderGeometry);
+                    BorderConnections = PreparedBorders.Connections;
+                    BorderGeometrySignature = geometrySignature;
+                    BorderConnectionUpdateCountdown = BorderConnectionUpdateIntervalTicks;
+                    LoadedBorderGeometry = null;
+                }
+                else
+                {
+                    LoadedBorderGeometry = null;
+                    PendingBorders = BorderWorker.TryRun(() => new BorderSnapshot(nodes, samples, projectorRadius));
+                }
             }
         }
 

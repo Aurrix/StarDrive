@@ -471,6 +471,50 @@ public class EmpireAssetsPanelTests : StarDriveTest
     }
 
     [TestMethod]
+    public void DashboardPlaylistSelectsTrackWithoutChangingGameSpeed()
+    {
+        // The headless fixture disables audio hardware; provide track metadata only.
+        var configField = typeof(Ship_Game.Audio.GameAudio).GetField("Config",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        object previousConfig = configField.GetValue(null);
+        using var config = new Ship_Game.Audio.AudioConfig();
+        configField.SetValue(null,config);
+        var overlay = new EmpireUIOverlay(Player,Game.GraphicsDevice,Universe);
+        var manager = Universe.ScreenManager;
+        int previous = manager.SelectedAmbientTrack;
+        bool paused = manager.AmbientMusicPaused;
+        float speed = UState.GameSpeed;
+        void Click(RectF rect)
+        {
+            Provider.SetMouse((int)rect.X+8,(int)rect.Y+8);
+            Provider.LeftMouse = ButtonState.Released;
+            Input.Update(new UpdateTimes(.016f,1));
+            overlay.HandleDashboardInput(Input);
+            Provider.LeftMouse = ButtonState.Pressed;
+            Input.Update(new UpdateTimes(.016f,1));
+            Assert.IsTrue(overlay.HandleDashboardInput(Input));
+        }
+        try
+        {
+            manager.SelectAmbientTrack(0);
+            Click(overlay.MusicTitleRect);
+            RectF list = overlay.PlaylistRect;
+            Click(new RectF(list.X+4,list.Y+4+EmpireUIOverlay.PlaylistRowHeight,list.W-8,EmpireUIOverlay.PlaylistRowHeight));
+            Assert.AreEqual(1,manager.SelectedAmbientTrack);
+            Assert.IsFalse(manager.AmbientMusicPaused);
+            Assert.AreEqual(speed,UState.GameSpeed);
+            Assert.IsTrue(overlay.DashboardItemRect(EmpireUIOverlay.DashboardItem.Research).W >= 150);
+            Assert.IsTrue(overlay.MusicTitleRect.Right <= overlay.DashboardMusicRect(0).X);
+        }
+        finally
+        {
+            manager.SelectAmbientTrack(previous);
+            if (manager.AmbientMusicPaused != paused) manager.ToggleAmbientMusic();
+            configField.SetValue(null,previousConfig);
+        }
+    }
+
+    [TestMethod]
     public void DashboardMusicPauseSurvivesAutomaticPlaybackAndTrackSkip()
     {
         var overlay = new EmpireUIOverlay(Player, Game.GraphicsDevice, Universe);

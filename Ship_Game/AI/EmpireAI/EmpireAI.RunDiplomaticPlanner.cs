@@ -15,6 +15,8 @@ namespace Ship_Game.AI
             if (OwnerEmpire.isPlayer || OwnerEmpire.GetAverageWarGrade() < 2 && TryMergeOrSurrender())
                 return;
 
+            UpdateBorderDiplomacy();
+
             switch (OwnerEmpire.Personality)
             {
                 case PersonalityType.Cunning:

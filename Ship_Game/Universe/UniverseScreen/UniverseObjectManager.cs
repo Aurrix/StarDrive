@@ -18,6 +18,8 @@ namespace Ship_Game
         readonly UniverseState UState;
         readonly SpatialManager Spatial;
         BorderScene CachedBorderScene;
+        readonly BorderStationOwnership BorderStations = new();
+        float BorderStationTimer;
 
         /// <summary>
         /// Should be TRUE by default. Can be used to detect threading issues.
@@ -199,6 +201,21 @@ namespace Ship_Game
             HandOverTouchdowns();
             UpdateAllProjectiles(timeStep);
 
+            if (!isRunning)
+            {
+                // Saved games can open paused. Drain/schedule asynchronous border
+                // geometry without contacts, diplomacy, station transfers or time.
+                Empire[] empires = UState.Empires.ToArr();
+                bool updated = false;
+                foreach (Empire empire in empires)
+                    if (!empire.IsDefeated && empire.HasPendingBorderGeometry)
+                    {
+                        empire.ResetBorders();
+                        updated = true;
+                    }
+                if (updated || CachedBorderScene == null) PublishBorderScene(empires);
+            }
+
             if (isRunning)
             {
                 // spatial update will automatically:
@@ -238,6 +255,22 @@ namespace Ship_Game
         /// <summary>
         /// Run once after save is loaded to restore object visibility
         /// </summary>
+        // Called by the loading screen before the universe starts receiving
+        // DrawCompleted events. Poll background geometry without advancing time.
+        internal bool PrepareLoadedBorders()
+        {
+            Empire[] empires = UState.Empires.ToArr();
+            bool ready = true;
+            foreach (Empire empire in empires)
+            {
+                if (empire.IsDefeated) continue;
+                if (empire.HasPendingBorderGeometry) empire.ResetBorders();
+                if (empire.HasPendingBorderGeometry) ready = false;
+            }
+            if (ready) PublishBorderScene(empires);
+            return ready;
+        }
+
         public void InitializeFromSave()
         {
             UpdateLists(removeInactiveObjects: true);
@@ -516,12 +549,24 @@ namespace Ship_Game
 
             // Capture ownership/diplomacy only after the parallel simulation work
             // has joined. Rendering consumes this immutable scene asynchronously.
-            BorderScene borderScene = BorderScene.Capture(CachedBorderScene, allEmpires);
-            CachedBorderScene = borderScene;
-            for (int i = 0; i < allEmpires.Length; ++i)
-                allEmpires[i].BorderNodeCache.SetScene(borderScene, i);
+            PublishBorderScene(allEmpires);
 
             Universe.EmpireInfluPerf.Stop();
+            BorderStationTimer += timeStep.FixedTime;
+            if (BorderStationTimer >= 1f)
+            {
+                BorderStations.Update(UState, BorderStationTimer);
+                BorderStationTimer = 0f;
+            }
+        }
+
+        void PublishBorderScene(Empire[] empires)
+        {
+            BorderScene scene = BorderScene.Capture(CachedBorderScene, empires);
+            CachedBorderScene = scene;
+            Universe.VisualBorderScene = scene;
+            for (int i = 0; i < empires.Length; ++i)
+                empires[i].BorderNodeCache.SetScene(scene, i);
         }
 
         void UpdateAllShipAI(FixedSimTime timeStep)

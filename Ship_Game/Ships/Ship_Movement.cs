@@ -102,17 +102,8 @@ namespace Ship_Game.Ships
             // the default modifier is 1, but in systems we use the In-System FTL Modifier
             float ftlModifier = System != null ? Universe.P.FTLModifier : 1f;
 
-            switch (CurrentInfluenceStatus)
-            {
-                // the default value for in-border speed bonus is 0.5, eg 50% speed increase
-                case InfluenceStatus.Friendly:
-                    ftlModifier += Loyalty.data.Traits.InBordersSpeedBonus;
-                    break;
-                // apply additional penalty modifier if within enemy influence, default is 0.5x, eg 50% penalty
-                case InfluenceStatus.Enemy:
-                    ftlModifier *= Universe.P.EnemyFTLModifier;
-                    break;
-            }
+            // Political territory does not alter propulsion. System gravity and
+            // ship/technology modifiers still apply independently of borders.
 
             FTLModifier = ftlModifier;
             float warpExoticBonus = Loyalty.GetStaticExoticBonusMuliplier(ExoticBonusType.WarpSpeed);

@@ -12,7 +12,6 @@ public sealed class RuleOptionsScreen : GameScreen
 
     Menu2 MainMenu;
     FloatSlider FTLPenaltySlider;
-    FloatSlider EnemyFTLPenaltySlider;
     FloatSlider GravityWellSize;
     FloatSlider ExtraPlanets;
     FloatSlider IncreaseMaintenance;
@@ -57,9 +56,9 @@ public sealed class RuleOptionsScreen : GameScreen
         FTLPenaltySlider.OnChange = (s) => P.FTLModifier = s.AbsoluteValue;
 
         var eftlRect = new Rectangle(x, leftRect.Y + 150, 270, 50);
-        EnemyFTLPenaltySlider = Add(new FloatSlider(SliderStyle.Percent, eftlRect, 
-                                                    GameText.InsystemEnemyFtlSpeedModifier, 0.1f, 1f, P.EnemyFTLModifier));
-        EnemyFTLPenaltySlider.OnChange = (s) => P.EnemyFTLModifier = s.AbsoluteValue;
+        Checkbox(eftlRect.X, eftlRect.Y + 10, () => P.DisablePoliticalBorders,
+            title: "Disable political borders",
+            tooltip: "Disable territorial borders, access restrictions, border diplomacy and station transfers.");
             
         int indent = (int)(width / 4.5f);
         Checkbox(ftlRect.X + indent, ftlRect.Y + 25*0, () => P.PreventFederations, title: GameText.PreventAiFederations, tooltip: GameText.PreventsAiEmpiresFromMerging);
@@ -104,7 +103,6 @@ public sealed class RuleOptionsScreen : GameScreen
         IncreaseMaintenance = SliderDecimal1(maintenanceRect,  GameText.MaintenanceMultiplier, 1, 2, P.ShipMaintenanceMultiplier);
         IncreaseMaintenance.OnChange = (s) => P.ShipMaintenanceMultiplier = s.AbsoluteValue.RoundToFractionOf10();
 
-        EnemyFTLPenaltySlider.Tip = GameText.UsingThisSliderYouCan2;
         CustomMineralDecay.Tip = GameText.HigherMineralDecayIncreasesThe;
         VolcanicActivity.Tip = GameText.ThisWillControlTheChances;
         FTLPenaltySlider.Tip = GameText.UsingThisSliderYouCan;

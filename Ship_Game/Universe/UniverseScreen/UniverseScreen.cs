@@ -754,6 +754,8 @@ namespace Ship_Game
 
         void UnloadGraphics()
         {
+            PoliticalBorders?.Dispose();
+            PoliticalBorders = null;
             if (MainTarget == null)
                 return;
             if (!GlobalStats.IsUnitTest)

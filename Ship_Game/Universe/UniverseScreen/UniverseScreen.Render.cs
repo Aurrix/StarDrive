@@ -106,28 +106,11 @@ namespace Ship_Game
         void DrawColoredBordersRT(SpriteBatch batch)
         {
             DrawOverFog.Start();
-            if (viewState >= UnivScreenState.PlanetView) // visible from the initial strategic view
+            if (!UState.P.DisablePoliticalBorders && !UState.HidePoliticalBorders
+                && GlobalStats.InfluenceNodeAlpha > 0.01f)
             {
                 batch.SafeBegin(SpriteBlendMode.AlphaBlend);
-                // set the alpha value depending on camera height
-                int maxAlpha = 100;
-                double relHeight = CamPos.Z / 1800000.0;
-                int alpha = (int)(maxAlpha * relHeight);
-                if (alpha > maxAlpha) alpha = maxAlpha;
-                else if (alpha < 70) alpha = 70;
-
-                // Apply the user's "border color strength" slider as the final multiplier.
-                // Keep the perimeter readable at the initial strategic camera height;
-                // distance regardless of slider value — the slider only scales the result,
-                // zooming out gradually strengthens it.
-                alpha = (int)(alpha * GlobalStats.InfluenceNodeAlpha);
-
-                // Phase 3.3 alpha fix: pre-multiply the tint so the (already-premul'd)
-                // BorderRT pixels get scaled by alpha at modulation time. Without
-                // pre-multiplication, MonoGame's premul AlphaBlend formula
-                // `dst = src.rgb + dst*(1-src.a)` adds the full RGB without
-                // attenuation — empire-projection halos rendered ~3x too bright at
-                // any non-full-camera-height since Phase 2.
+                int alpha = (int)(255 * GlobalStats.InfluenceNodeAlpha);
                 var color = new Color((byte)alpha, (byte)alpha, (byte)alpha, (byte)alpha);
                 batch.Draw((BorderRT as Microsoft.Xna.Framework.Graphics.Texture2D), new Rectangle(0, 0, ScreenWidth, ScreenHeight), color);
                 batch.SafeEnd();

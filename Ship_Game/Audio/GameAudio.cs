@@ -485,6 +485,13 @@ public static class GameAudio
         return tracks.Length == 0 ? "Music unavailable" : effect.GetTrackTitle(tracks[trackIndex % tracks.Length]);
     }
 
+    public static string GetMusicTrackArtist(string effectId, int trackIndex)
+    {
+        SoundEffect effect = Config?.GetSoundEffect(effectId);
+        string[] tracks = GetMusicTracks(effectId);
+        return tracks.Length == 0 ? "" : effect.GetTrackArtist(tracks[trackIndex % tracks.Length]);
+    }
+
     public static AudioHandle PlayMusic(string effectId, int trackIndex = -1)
     {
         if (CantPlayMusic(effectId))

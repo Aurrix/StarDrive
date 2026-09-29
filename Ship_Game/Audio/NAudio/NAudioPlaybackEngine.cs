@@ -15,6 +15,8 @@ internal class NAudioPlaybackEngine : IDisposable
 
     readonly IWavePlayer OutputDevice;
     readonly NAudioSampleMixer Mixer;
+    readonly IWavePlayer MusicOutput;
+    readonly NAudioSampleMixer MusicMixer;
 
     // pre-sampled cache for Weapon and Warp effects
     readonly Map<string, CachedSoundEffect> SfxCache = new();
@@ -22,21 +24,44 @@ internal class NAudioPlaybackEngine : IDisposable
     public WaveFormat WaveFormat { get; }
 
     public NAudioPlaybackEngine(MMDevice device)
+        : this(latency => new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: latency))
     {
-        // useEventSync: if true, waits for Wasapi signal, otherwise sleeps for (latency/2) ms
-        // latency: buffer duration in ms
-        OutputDevice = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: 50);
+    }
+
+    internal NAudioPlaybackEngine(Func<int, IWavePlayer> createOutput)
+    {
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels);
         Mixer = new(WaveFormat) { ReadFully = true };
-
-        OutputDevice.Init(Mixer);
-        OutputDevice.Play();
+        MusicMixer = new(WaveFormat) { ReadFully = true };
+        OutputDevice = createOutput(50);
+        try
+        {
+            // Independent WASAPI playback threads: expensive SFX mixing cannot
+            // block music reads. The native music buffer tolerates short managed
+            // stalls without imposing the same latency on UI and combat sounds.
+            MusicOutput = createOutput(300);
+            OutputDevice.Init(Mixer);
+            MusicOutput.Init(MusicMixer);
+            OutputDevice.Play();
+            MusicOutput.Play();
+        }
+        catch
+        {
+            MusicOutput?.Dispose();
+            OutputDevice.Dispose();
+            MusicMixer.Dispose();
+            Mixer.Dispose();
+            throw;
+        }
     }
 
     public void Dispose()
     {
-        Mixer.Dispose();
+        MusicOutput.Dispose();
         OutputDevice.Dispose(); // automatically calls Stop()
+        // Join playback before disposing providers they could still be reading.
+        MusicMixer.Dispose();
+        Mixer.Dispose();
     }
 
     /// <summary>
@@ -58,7 +83,7 @@ internal class NAudioPlaybackEngine : IDisposable
     public float MixerMasterVolume
     {
         get => Mixer.MasterVolume;
-        set => Mixer.MasterVolume = float.IsNaN(value) ? 1f : Math.Clamp(value, 0f, 1f);
+        set => MusicMixer.MasterVolume = Mixer.MasterVolume = float.IsNaN(value) ? 1f : Math.Clamp(value, 0f, 1f);
     }
 
     /// <summary>
@@ -102,7 +127,9 @@ internal class NAudioPlaybackEngine : IDisposable
 
             //Log.Write(ConsoleColor.Green, $"Start {audioFile} volume={volume}");
             NAudioSampleInstance instance = new(category, emitter, provider, volume);
-            Mixer.AddMixerInput(instance);
+            NAudioSampleMixer mixer = category.Name.IndexOf("Music", StringComparison.OrdinalIgnoreCase) >= 0
+                ? MusicMixer : Mixer;
+            mixer.AddMixerInput(instance);
             return instance;
         }
         catch (Exception ex)

@@ -31,6 +31,7 @@ namespace Ship_Game.Universe
         [StarData] public readonly float Size; // TODO: rename to UniverseRadius?
 
         [StarData] public UniverseParams P;
+        [StarData] internal SavedBorderOverview BorderOverviewCache;
 
         public float UniverseWidth => Size*2f;
         public float UniverseRadius => Size;
@@ -56,6 +57,7 @@ namespace Ship_Game.Universe
         [StarData] int UniqueObjectIds;
 
         public bool CanShowDiplomacyScreen = true;
+        [StarData] public bool HidePoliticalBorders;
         public bool Paused = true; // always start paused
         public bool Debug;
         public DebugModes DebugMode;

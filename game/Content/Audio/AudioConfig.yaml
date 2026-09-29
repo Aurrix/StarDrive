@@ -18,6 +18,18 @@
     - SoundEffect:
       Id: AmbientMusic
       Volume: 0.5
+      # Original-game credits: StarDrive manual, Music & Audio: Jeff Dodson.
+      # sd2 tracks: artist tags embedded in the bundled M4A files.
+      TrackArtists:
+        "Music/AmbientMusic.0.m4a": "Jeff Dodson"
+        "Music/AmbientMusic.1.m4a": "Jeff Dodson"
+        "Music/AmbientMusic.2.m4a": "Jeff Dodson"
+        "Music/AmbientMusic.3.m4a": "Jeff Dodson"
+        "Music/AmbientMusic.4.m4a": "Jeff Dodson"
+        "Music/AmbientMusic.5.m4a": "Jeff Dodson"
+        "Music/sd2-1.m4a": "Marius Masalar"
+        "Music/sd2-2.m4a": "Marius Masalar"
+        "Music/sd2-3.m4a": "Gustav Holst"
       TrackTitles:
         # Descriptive in-game titles for tracks whose embedded names are placeholders.
         "Music/AmbientMusic.0.m4a": "Beyond the Frontier"

@@ -159,6 +159,11 @@ public class BorderFieldTests
                 tasks.Add(task);
             Assert.IsTrue(tasks.Count <= 2);
             Assert.IsNull(BorderWorker.TryRun(() => 2));
+            Task<int> visual = null;
+            Assert.IsTrue(SpinWait.SpinUntil(() => (visual = BorderWorker.TryRunVisual(() => 42)) != null,5000),
+                "Busy simulation workers must not starve visual work");
+            Assert.IsTrue(visual.Wait(5000));
+            Assert.AreEqual(42,visual.Result);
         }
         finally
         {

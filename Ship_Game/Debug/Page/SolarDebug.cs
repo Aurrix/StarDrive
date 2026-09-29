@@ -18,25 +18,6 @@ internal class SolarDebug : DebugPage
     {
     }
 
-    public override bool HandleInput(InputState input)
-    {
-        if (input.IsKeyDown(Keys.OemComma))
-        {
-            if (input.KeyPressed(Keys.Up))
-                Screen.BorderBlendSrc = Screen.BorderBlendSrc.IncrementWithWrap(-1);
-            else if (input.KeyPressed(Keys.Down))
-                Screen.BorderBlendSrc = Screen.BorderBlendSrc.IncrementWithWrap(+1);
-        }
-        else if (input.IsKeyDown(Keys.OemPeriod))
-        {
-            if (input.KeyPressed(Keys.Up))
-                Screen.BorderBlendDest = Screen.BorderBlendDest.IncrementWithWrap(-1);
-            else if (input.KeyPressed(Keys.Down))
-                Screen.BorderBlendDest = Screen.BorderBlendDest.IncrementWithWrap(+1);
-        }
-        return base.HandleInput(input);
-    }
-
     public override void Update(float fixedDeltaTime)
     {
         System = Screen.UState.FindClosestSystem(Screen.CursorWorldPosition2D);
@@ -105,8 +86,12 @@ internal class SolarDebug : DebugPage
             sr.End();
         }
         
-        Screen.DrawString(new(300, 200), Color.White, $"SrcBlend: {Screen.BorderBlendSrc}  Change with COMMA+UP/DOWN keys", Fonts.Arial20Bold);
-        Screen.DrawString(new(300, 240), Color.White, $"DstBlend: {Screen.BorderBlendDest}  Change with PERIOD+UP/DOWN keys", Fonts.Arial20Bold);
+        BorderVisualRenderer borders = Screen.PoliticalBorders;
+        if (borders != null)
+        {
+            Screen.DrawString(new(300,200),Color.White,$"Border jobs: {borders.JobsStarted}, uploaded tiles: {borders.TilesUploaded}",Fonts.Arial20Bold);
+            Screen.DrawString(new(300,240),Color.White,$"Border GPU cache: {borders.GpuBytes / (1024f*1024):F1} MiB",Fonts.Arial20Bold);
+        }
 
         base.Draw(spriteBatch, elapsed);
     }

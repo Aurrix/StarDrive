@@ -208,6 +208,9 @@
     <Compile Include="Ship_Game\Empires\Components\EmpireFirstContact.cs" />
     <Compile Include="Ship_Game\Empires\Components\IncomingThreatDetector.cs" />
     <Compile Include="Ship_Game\Empire_Borders.cs" />
+    <Compile Include="Ship_Game\Empire_BorderPolicy.cs" />
+    <Compile Include="Ship_Game\AI\EmpireAI\EmpireAI.BorderDiplomacy.cs" />
+    <Compile Include="Ship_Game\Universe\BorderStationOwnership.cs" />
     <Compile Include="Ship_Game\Empire_ExoticResources.cs" />
     <Compile Include="Ship_Game\Empire_Fleets.cs" />
     <Compile Include="Ship_Game\Empire_RallyPlanets.cs" />
@@ -401,6 +404,8 @@
     <Compile Include="Ship_Game\Universe\UniverseParams.cs" />
     <Compile Include="Ship_Game\Universe\UniverseScreen\BorderNodeCache.cs" />
     <Compile Include="Ship_Game\Universe\UniverseScreen\BorderField.cs" />
+    <Compile Include="Ship_Game\Universe\UniverseScreen\BorderVisualTile.cs" />
+    <Compile Include="Ship_Game\Universe\UniverseScreen\BorderVisualRenderer.cs" />
     <Compile Include="Ship_Game\Universe\UniverseScreen\UniverseScreen.Events.cs" />
     <Compile Include="Ship_Game\Universe\UniverseScreen\UniverseScreen.Save.cs" />
     <Compile Include="Ship_Game\Universe\UniverseScreen\UniverseScreen.SetSelectedItem.cs" />

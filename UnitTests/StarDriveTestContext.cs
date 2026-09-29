@@ -64,7 +64,17 @@ namespace UnitTests
             // testhost ignores app.config, so this can't be relied on from there).
             GlobalStats.RestrictAIPlayerInteraction = false;
 
-            Log.Initialize(enableSentry: false, showHeader: false);
+            // A live game owns game/blackbox.log exclusively. Give each test
+            // process its own log so rendering regressions can run alongside it.
+            string gameDirectory = Directory.GetCurrentDirectory();
+            string testLogDirectory = Path.GetFullPath($"../UnitTests/TestResults/Logs/{Environment.ProcessId}");
+            Directory.CreateDirectory(testLogDirectory);
+            try
+            {
+                Directory.SetCurrentDirectory(testLogDirectory);
+                Log.Initialize(enableSentry: false, showHeader: false);
+            }
+            finally { Directory.SetCurrentDirectory(gameDirectory); }
             Log.VerboseLogging = true;
 
             // This allows us to completely load UniverseScreen inside UnitTests

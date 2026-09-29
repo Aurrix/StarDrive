@@ -4,6 +4,8 @@ using System.Text;
 using Microsoft.Xna.Framework.Graphics;
 using SDGraphics;
 using Ship_Game.AI;
+using Ship_Game.Audio;
+using Ship_Game.Graphics;
 using Color = Microsoft.Xna.Framework.Color;
 
 namespace Ship_Game;
@@ -11,7 +13,16 @@ namespace Ship_Game;
 public sealed partial class EmpireUIOverlay
 {
     internal const int DashboardHeight = 36;
-    int DashboardMusicWidth => Universe.ScreenWidth >= 1440 ? 190 : 84;
+    int DashboardMusicWidth => Universe.ScreenWidth >= 1440 ? 190 : 144;
+    bool PlaylistOpen;
+    int PlaylistOffset;
+    string ScrollingTrack;
+    long TrackScrollStarted;
+    internal RectF MusicTitleRect => new(Universe.ScreenWidth - 170 - DashboardMusicWidth, 0, DashboardMusicWidth - 86, DashboardHeight);
+    internal const int PlaylistRowHeight = 42;
+    int PlaylistRows => Math.Max(1, Math.Min(10, (Universe.ScreenHeight - DashboardHeight - 12) / PlaylistRowHeight));
+    internal RectF PlaylistRect => new(Universe.ScreenWidth - 534, DashboardHeight + 2, 360,
+        Math.Max(1, Math.Min(PlaylistRows, GameAudio.GetMusicTracks("AmbientMusic").Length)) * PlaylistRowHeight + 8);
     internal enum DashboardItem { Money, Food, Production, Science, Research, Population, Freight, Empire, Fleets, Resources, Alerts }
     static readonly float[] DashboardWeights = { 1.25f, 1.1f, 1.1f, .8f, 1.5f, 1.05f, .65f, .55f, .65f, 1f, .4f };
     static readonly float[] DashboardSpeeds = { .5f, 1f, 2f, 4f };
@@ -43,7 +54,12 @@ public sealed partial class EmpireUIOverlay
         }
         // Cap the entire resource strip so wide displays don't stretch each item.
         float available = Math.Max(1, Math.Min(906, Universe.ScreenWidth - 252 - DashboardMusicWidth));
-        return new RectF(before / total * available, 0, DashboardWeights[(int)item] / total * available, DashboardHeight);
+        // Reserve a modest minimum for the research title and progress bar.
+        float research = Math.Max(150, available * DashboardWeights[4] / total);
+        research = Math.Min(research, available * .25f);
+        float scale = (available - research) / (total - DashboardWeights[4]);
+        float x = before * scale + ((int)item > 4 ? research - DashboardWeights[4] * scale : 0);
+        return new RectF(x, 0, item == DashboardItem.Research ? research : DashboardWeights[(int)item] * scale, DashboardHeight);
     }
 
     // 0 toggles pause; 1..4 select a simulation speed without changing pause state.
@@ -201,8 +217,10 @@ public sealed partial class EmpireUIOverlay
     {
         var manager = Universe.ScreenManager;
         RectF music = new(Universe.ScreenWidth - 174 - DashboardMusicWidth, 0, DashboardMusicWidth, DashboardHeight);
-        if (DashboardMusicWidth > 84)
-            DrawDashboardText(batch, manager.AmbientTrackTitle, new RectF(music.X + 4, 0, music.W - 86, DashboardHeight), DashboardGold);
+        RectF titleRect = MusicTitleRect;
+        titleRect.W -= 12;
+        DrawScrollingTrack(batch, manager.AmbientTrackTitle, titleRect);
+        DrawDashboardText(batch,"v",new RectF(titleRect.Right,0,12,DashboardHeight),DashboardCyan);
         string[] labels = { "|<", manager.AmbientMusicPaused ? ">" : "II", ">|" };
         for (int i = 0; i < 3; ++i)
         {
@@ -213,7 +231,48 @@ public sealed partial class EmpireUIOverlay
             DrawDashboardText(batch, labels[i], rect, DashboardCyan);
         }
         if (music.HitTest(DashboardCursor))
-            ToolTip.CreateTooltip($"MUSIC - {manager.AmbientTrackTitle}\nPrevious track / pause or resume / next track\n{(Ship_Game.Audio.GameAudio.IsMusicDisabled ? "Music muted or audio unavailable" : manager.AmbientMusicPaused ? "Paused" : "Playing")}");
+            ToolTip.CreateTooltip($"MUSIC - {manager.AmbientTrackTitle}\nClick the title for playlist\nPrevious track / pause or resume / next track\n{(Ship_Game.Audio.GameAudio.IsMusicDisabled ? "Music muted or audio unavailable" : manager.AmbientMusicPaused ? "Paused" : "Playing")}");
+    }
+
+    void DrawScrollingTrack(SpriteBatch batch, string title, RectF rect)
+    {
+        if (ScrollingTrack != title) { ScrollingTrack = title; TrackScrollStarted = Environment.TickCount64; }
+        var font = Fonts.Arial11Bold;
+        float width = font.TextWidth(title);
+        if (width <= rect.W) { DrawDashboardText(batch,title,rect,DashboardGold); return; }
+        float cycle = width + 36;
+        float offset = (float)(Math.Max(0,Environment.TickCount64-TrackScrollStarted-1500) / 1000.0 * 24 % cycle);
+        var device = batch.GraphicsDevice;
+        var old = device.ScissorRectangle;
+        batch.SafeEnd();
+        device.ScissorRectangle = new Microsoft.Xna.Framework.Rectangle((int)rect.X,(int)rect.Y,(int)rect.W,(int)rect.H);
+        batch.SafeBegin(SpriteBlendMode.AlphaBlend,RenderStates.ScissorEnabled);
+        batch.DrawString(font,title,new Vector2(rect.X-offset,rect.Y+(rect.H-font.LineSpacing)/2),DashboardGold);
+        batch.DrawString(font,title,new Vector2(rect.X-offset+cycle,rect.Y+(rect.H-font.LineSpacing)/2),DashboardGold);
+        batch.SafeEnd();
+        device.ScissorRectangle = old;
+        batch.SafeBegin();
+    }
+
+    public void DrawDashboardPlaylist(SpriteBatch batch)
+    {
+        if (!PlaylistOpen) return;
+        RectF box = PlaylistRect;
+        batch.FillRectangle(box,new Color(7,18,25));
+        batch.DrawRectangle(box,DashboardGold);
+        int count = GameAudio.GetMusicTracks("AmbientMusic").Length;
+        PlaylistOffset = Math.Clamp(PlaylistOffset,0,Math.Max(0,count-PlaylistRows));
+        if (count == 0) DrawDashboardText(batch,"No music available",box,DashboardGold);
+        for (int row = 0; row < PlaylistRows && row+PlaylistOffset < count; ++row)
+        {
+            int index = row + PlaylistOffset;
+            RectF item = new(box.X+4,box.Y+4+row*PlaylistRowHeight,box.W-8,PlaylistRowHeight);
+            bool selected = index == Universe.ScreenManager.SelectedAmbientTrack;
+            if (item.HitTest(DashboardCursor) || selected) batch.FillRectangle(item,new Color(24,46,53));
+            DrawDashboardText(batch,(selected ? "> " : "")+GameAudio.GetMusicTrackTitle("AmbientMusic",index),new RectF(item.X,item.Y,item.W,22),
+                selected ? DashboardCyan : DashboardGold);
+            DrawDashboardText(batch,GameAudio.GetMusicTrackArtist("AmbientMusic",index),new RectF(item.X,item.Y+22,item.W,18),Color.Gray);
+        }
     }
 
     static void DrawDashboardText(SpriteBatch batch, string text, RectF rect, Color color)
@@ -231,6 +290,34 @@ public sealed partial class EmpireUIOverlay
     public bool HandleDashboardInput(InputState input)
     {
         DashboardCursor = input.CursorPosition;
+        if (PlaylistOpen)
+        {
+            if (input.Escaped) { PlaylistOpen = false; return true; }
+            if (PlaylistRect.HitTest(DashboardCursor))
+            {
+                int count = GameAudio.GetMusicTracks("AmbientMusic").Length;
+                if (input.ScrollIn) --PlaylistOffset;
+                if (input.ScrollOut) ++PlaylistOffset;
+                PlaylistOffset = Math.Clamp(PlaylistOffset,0,Math.Max(0,count-PlaylistRows));
+                if (input.InGameSelect)
+                {
+                    int row = (int)((DashboardCursor.Y-PlaylistRect.Y-4)/PlaylistRowHeight);
+                    if (row >= 0 && row < PlaylistRows && row+PlaylistOffset < count)
+                    {
+                        Universe.ScreenManager.SelectAmbientTrack(row+PlaylistOffset);
+                        PlaylistOpen = false;
+                    }
+                }
+                return true;
+            }
+            if (input.InGameSelect && !MusicTitleRect.HitTest(DashboardCursor)) { PlaylistOpen = false; return true; }
+        }
+        if (input.InGameSelect && MusicTitleRect.HitTest(DashboardCursor))
+        {
+            PlaylistOpen = !PlaylistOpen;
+            PlaylistOffset = Math.Max(0,Universe.ScreenManager.SelectedAmbientTrack-PlaylistRows/2);
+            return true;
+        }
         UpdateDashboardHover();
         if (DashboardCardVisible && DashboardCardRect().HitTest(DashboardCursor))
             return !input.WasAnyKeyPressed;

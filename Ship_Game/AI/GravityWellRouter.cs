@@ -106,6 +106,9 @@ public static class GravityWellRouter
                               && !order.IsSet(MoveOrder.Aggressive)
                               && !order.IsSet(MoveOrder.Pursue);
         bool routeClosedBorders = HasClosedForeignBorders(ship);
+        if (routeClosedBorders && TryFindClosedBorderEntry(ship, from, to, out float entry))
+            ship.RequestBorderPassage(ClosedBorderOwnerAt(ship,
+                from + (to - from) * Math.Min(1f, entry + 0.001f)));
         if (!routeGravityWells && !routeClosedBorders)
         {
             if (LogVerbose && ship != null)
@@ -163,8 +166,10 @@ public static class GravityWellRouter
 
     static Empire ClosedBorderOwnerAt(Ship ship, Vector2 point)
     {
+        if (ship?.Universe == null) return null;
         foreach (Empire empire in ship.Universe.Empires)
-            if (!ship.HasBorderAccessTo(empire) && empire.IsInBorderTerritory(point))
+            if (!ship.HasBorderAccessTo(empire) && empire.IsInBorderTerritory(point)
+                && (ship.Loyalty.isPlayer || !empire.IsContestedBorderAt(point)))
                 return empire;
         return null;
     }
@@ -173,29 +178,39 @@ public static class GravityWellRouter
     /// ships from accepting jobs whose endpoint is inside territory they cannot
     /// legally enter, instead of relying on the per-frame physics guard.</summary>
     public static bool IsDestinationAccessible(Ship ship, Vector2 destination)
-        => ship?.Universe == null || ClosedBorderOwnerAt(ship, destination) == null;
+    {
+        Empire blocker = ClosedBorderOwnerAt(ship, destination);
+        if (blocker == null) return true;
+        // Jobs filtered before an order is issued still create an access need.
+        ship.RequestBorderPassage(blocker);
+        return ship.HasBorderAccessTo(blocker);
+    }
 
     public static bool IsDestinationAccessible(Empire traveler, Vector2 destination)
     {
         if (traveler?.Universe == null)
             return true;
         foreach (Empire owner in traveler.Universe.Empires)
-            if (!traveler.HasBorderAccessTo(owner) && owner.IsInBorderTerritory(destination))
+            if (!traveler.HasBorderAccessTo(owner) && owner.IsInBorderTerritory(destination)
+                && (traveler.isPlayer || !owner.IsContestedBorderAt(destination)))
+            {
+                if (!traveler.isPlayer && !traveler.IsFaction && !owner.IsFaction)
+                    traveler.GetRelations(owner).BorderAccessRequested = true;
                 return false;
+            }
         return true;
     }
 
-    /// <summary>Stricter strategic check for peaceful expansion. A planet covered
-    /// by any known closed empire's raw claim is not a valid automatic colony
-    /// target, even where winner-resolved or contested rendering assigns the exact
-    /// point to another field.</summary>
+    /// <summary>Colonial claims are stricter than transit rights: treaties permit
+    /// travel, not settlement. Strong, unfriendly AI may deliberately provoke a
+    /// weaker claimant; otherwise even contested claims are respected.</summary>
     public static bool IsInsideClosedBorderClaim(Empire traveler, Vector2 point)
     {
         if (traveler?.Universe == null)
             return false;
         foreach (Empire owner in traveler.Universe.Empires)
         {
-            if (traveler.HasBorderAccessTo(owner))
+            if (!traveler.ShouldRespectColonialClaim(owner))
                 continue;
             if (owner.GetBorderClaimStrength(point) >= 0f)
                 return true;
@@ -213,6 +228,9 @@ public static class GravityWellRouter
     public static bool IsInsideClosedBorder(Ship ship)
         => ship?.Universe != null && ClosedBorderOwnerAt(ship, ship.Position) != null;
 
+    public static void RequestPassageIfStranded(Ship ship)
+        => ship?.RequestBorderPassage(ClosedBorderOwnerAt(ship, ship.Position));
+
     /// <summary>Finds the closest approximately straight, monotonically outward
     /// route from a ship trapped by border growth, a treaty change, or an event
     /// spawn. Sampling is intentionally done only when evacuation begins.</summary>
@@ -224,6 +242,7 @@ public static class GravityWellRouter
         Empire owner = ClosedBorderOwnerAt(ship, ship.Position);
         if (owner == null)
             return false;
+        ship.RequestBorderPassage(owner);
 
         float step = Math.Max(owner.GetProjectorRadius() * 0.12f, BorderStopBuffer * 4f);
         float maxDistance = step * 4f;
@@ -342,6 +361,7 @@ public static class GravityWellRouter
     /// </summary>
     public static Vector2 ClampToAccessibleBorders(Ship ship, Vector2 from, Vector2 destination)
     {
+        ship?.RequestBorderPassage(ClosedBorderOwnerAt(ship, destination));
         // A legal destination on the far side must remain intact so BuildDetours
         // can route around the border. Clamp only an endpoint that is itself illegal.
         if (IsDestinationAccessible(ship, destination))
@@ -594,7 +614,7 @@ public static class GravityWellRouter
         }
 
         int closedBorderNodes = 0;
-        if (routeClosedBorders)
+        if (routeClosedBorders && TryFindClosedBorderEntry(ship, a, b, out _))
         {
             foreach (Empire empire in ship.Universe.Empires)
             {

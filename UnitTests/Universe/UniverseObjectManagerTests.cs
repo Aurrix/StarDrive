@@ -22,6 +22,41 @@ namespace UnitTests.Universe
         }
 
         [TestMethod]
+        public void LoadedBorderGeometryIsReusedWithoutBackgroundWork()
+        {
+            AddDummyPlanetToEmpire(new Vector2(1000,1000),Player);
+            Assert.IsTrue(System.Threading.SpinWait.SpinUntil(() => UState.Objects.PrepareLoadedBorders(),30000));
+            var saved = UnitTests.Serialization.BinarySerializerTests.SerDes(Player.SavedBorderCache);
+            Player.PreparedBorders = null;
+            Player.SavedBorderCache = saved;
+            // ClearInfluenceList normally resets this countdown during load.
+            typeof(Empire).GetField("BorderConnectionUpdateCountdown",System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic).SetValue(Player,0);
+            Player.ResetBorders();
+            Assert.IsFalse(Player.HasPendingBorderGeometry);
+            Assert.AreSame(saved.Field,Player.PreparedBorders.Field);
+        }
+
+        [TestMethod]
+        public void PausedLoadCompletesAndPublishesBorderGeometry()
+        {
+            AddDummyPlanetToEmpire(new Vector2(1000,1000),Player);
+            UState.Paused = true;
+            float date = UState.StarDate;
+            UState.Objects.InitializeFromSave();
+            Assert.IsNotNull(Universe.VisualBorderScene);
+            Assert.IsTrue(System.Threading.SpinWait.SpinUntil(() =>
+            {
+                UState.Objects.Update(FixedSimTime.Zero);
+                return Universe.VisualBorderScene != null
+                    && Universe.VisualBorderScene.Empires.All(e => !e.Active || e.Snapshot != null);
+            },30000),"Paused load never finished border geometry");
+            Assert.IsNotNull(Player.PreparedBorders);
+            Assert.AreEqual(date,UState.StarDate);
+            Assert.IsTrue(UState.Paused);
+        }
+
+        [TestMethod]
         public void SpawnedShipIsAddedToEmpireAndUniverse()
         {
             var spawnedShip = SpawnShip("Vulcan Scout", Player, Vector2.Zero);

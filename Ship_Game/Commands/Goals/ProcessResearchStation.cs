@@ -218,7 +218,9 @@ namespace Ship_Game.Commands.Goals
             {
                 Owner.Universe.RemoveEmpireFromResearchableList(Owner, TargetSolarBody);
                 Empire newOwner = ResearchStation.Loyalty;
-                if (TargetPlanet?.CanBeResearchedBy(newOwner) == true || TargetSystem?.CanBeResearchedBy(newOwner) == true)
+                bool acquiredByBorder = ResearchStation.ResearchStationAcquiredByBorder;
+                ResearchStation.ResearchStationAcquiredByBorder = false;
+                if (acquiredByBorder || TargetPlanet?.CanBeResearchedBy(newOwner) == true || TargetSystem?.CanBeResearchedBy(newOwner) == true)
                 {
                     newOwner.AI.AddGoalAndEvaluate(new ProcessResearchStation(newOwner, ResearchStation));
                 }

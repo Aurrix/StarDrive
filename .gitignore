@@ -1,4 +1,14 @@
 obj/
+# Tool project build products (keep tool sources and vendored binaries visible).
+/tools/**/bin/
+
+# Local review captures, test logs, scratch scripts and generated previews.
+# Durable source/assets belong in docs/, tools/, or game/Content/ instead.
+/output/
+
+# Downloaded local inference weights; retain model configs/schemas in Git.
+/game/Content/AI/Models/*.gguf
+
 packages/
 StarDrive/
 Deploy/Upload/

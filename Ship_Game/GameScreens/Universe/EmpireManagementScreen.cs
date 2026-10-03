@@ -55,6 +55,8 @@ namespace Ship_Game
             var mainBkg = new Rectangle(2, titleRect.Bottom + 5, ScreenWidth - 10, ScreenHeight - titleRect.Bottom - 7);
             Add(new Menu2(mainBkg));
             Add(new CloseButton(mainBkg.Right - 40, mainBkg.Y + 20));
+            Button(ButtonStyle.Medium, new Vector2(titleRect.Right - 210, titleRect.Y + 25),
+                "Global Construction", _ => ScreenManager.AddScreen(new GlobalConstructionScreen(this)));
 
             float eRectY = titleRect.Bottom + 30;
             float maxListHeight = ScreenHeight - eRectY - 22 - GovernorDetailsComponent.MinHeight;

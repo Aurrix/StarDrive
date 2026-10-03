@@ -1,5 +1,6 @@
 ﻿using SDGraphics;
 using Ship_Game.AI;
+using Ship_Game.Universe;
 using Ship_Game.Data.Serialization;
 using Ship_Game.Ships;
 using System;
@@ -76,6 +77,11 @@ namespace Ship_Game.Commands.Goals
 
         GoalStep BuildStationConstructor()
         {
+            if (!ExplorableGameObject.CanBuildExoticStationAt(Owner, TargetPlanet.Position)
+                || TargetPlanet.HasExoticStation(Owner, mining: true)
+                || TargetPlanet.HasExoticStationGoal(Owner, mining: true, except: this))
+                return GoalStep.GoalFailed;
+
             if (StationToBuild == null)
             {
                 StationToBuild = !Owner.isPlayer || Owner.AutoPickBestMiningStation

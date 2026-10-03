@@ -59,7 +59,12 @@ namespace Ship_Game.Universe
         {
             if (source is Ship projector)
             {
-                float radius = projector.Loyalty.GetStaticBorderInfluenceRadius();
+                // Political claim range is an explicit station capability. A
+                // projector ship may still be present in this tree for roads
+                // and sensors, but it no longer supplies a border radius.
+                float radius = projector.BorderClaimRadius > 0f
+                    ? projector.BorderClaimRadius
+                    : projector.Loyalty.GetStaticBorderInfluenceRadius();
                 return (source.Position, radius, radius * (1f + Empire.BorderShapeMaxVariation));
             }
 

@@ -9,7 +9,7 @@ namespace Ship_Game
     [StarDataType]
     public class Mineable
     {
-        public const int MaximumMiningStations = 4;
+        public const int MaximumMiningStations = 1;
         [StarData] public readonly Planet P;
         [StarData] public readonly Good ResourceType;
         [StarData] public readonly float Richness; // how much of the resource is exctracted per turn
@@ -41,7 +41,8 @@ namespace Ship_Game
             if (!empire.CanBuildMiningStations || HasOpsOwner && Owner != empire)
                 return false;
 
-            return NumMiningGoalsFor(empire) < MaximumMiningStations;
+            return !P.HasExoticStation(empire, mining: true)
+                && !P.HasExoticStationGoal(empire, mining: true);
         }
 
         public bool AreMiningOpsPresentBy(Empire empire)

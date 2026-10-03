@@ -281,6 +281,11 @@ namespace Ship_Game.AI
                 return;
 
             Planet target = g.TargetPlanet;
+            if (!bg.ExoticStationSiteValid())
+            {
+                OrderScrapShip();
+                return;
+            }
             if (target == null && bg.TetherPlanet != null)
             {
                 target = bg.TetherPlanet;
@@ -360,6 +365,11 @@ namespace Ship_Game.AI
             }
 
             Planet target = bg.TetherPlanet;
+            if (!bg.ExoticStationSiteValid())
+            {
+                OrderScrapShip();
+                return;
+            }
             if (target == null 
                 || target.Owner != Owner.Loyalty
                 || target.IsMineable && target.Mining.OpsOwnedBySomeoneElseThan(Owner.Loyalty))

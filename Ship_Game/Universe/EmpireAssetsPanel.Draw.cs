@@ -68,6 +68,9 @@ public sealed partial class EmpireAssetsPanel
         RailStrip.Draw(batch, new RectF(frame.X, frame.Y, RailWidth + 28, frame.H));
         (Collapsed ? EndStrip : BodyStrip).Draw(batch,
             new RectF(ContentX, frame.Y, frame.Right - ContentX, frame.H));
+        // Opaque charcoal keeps nebulae and the decorative frame out of the glyphs.
+        batch.FillRectangle(new RectF(X, Y - 5, RailWidth - 8, Height + 5), new Color(10, 14, 19));
+        batch.DrawRectangle(new RectF(X, Y - 5, RailWidth - 8, Height + 5), new Color(48, 57, 67));
     }
 
     static void Text(SpriteBatch batch, string text, float x, float y, Color color, bool bold = false)
@@ -102,12 +105,13 @@ public sealed partial class EmpireAssetsPanel
             bool active = action == SidebarAction.Assets ? !Collapsed && !AutomationSelected
                 : action == SidebarAction.Automation ? !Collapsed && AutomationSelected
                 : action == SidebarAction.Construction && Screen.DeepSpaceBuildWindow.Visible;
-            Color trim = hover ? Color.Wheat : active ? Accent : Muted;
-            batch.FillRectangle(button, hover ? new Color(48, 57, 53)
-                : active ? new Color(45, 43, 29) : new Color(19, 24, 23));
+            Color trim = hover ? Color.Wheat : active ? Accent : new Color(65, 77, 90);
+            batch.FillRectangle(button, hover ? new Color(44, 55, 68)
+                : active ? new Color(57, 48, 30) : new Color(18, 25, 34));
             batch.DrawRectangle(button, trim);
-            Texture(batch, "NewUI/SidebarIcons/" + NavigationIcons[(int)action],
-                new RectF(button.X + 2, button.Y + 2, 28, 28), Color.White);
+            DrawNavigationGlyph(batch, action, button, active || hover ? Color.Wheat : new Color(235, 242, 250));
+            if (active)
+                batch.FillRectangle(new RectF(button.X, button.Y + 5, 2, button.H - 10), Accent);
             if (hover) ToolTip.CreateTooltip(NavigationTips[(int)action]);
         }
         if (NavigationMaxOffset > 0)
@@ -119,6 +123,82 @@ public sealed partial class EmpireAssetsPanel
                 if (NavigationUpRect.HitTest(Cursor) || NavigationDownRect.HitTest(Cursor))
                     ToolTip.CreateTooltip("Scroll sidebar shortcuts");
             }
+        }
+    }
+
+    // Bold, untextured symbols on a 32px grid remain legible at the rail's native size.
+    static void DrawNavigationGlyph(SpriteBatch batch, SidebarAction action, RectF button, Color color)
+    {
+        Vector2 P(float x, float y) => new(button.X + x, button.Y + y);
+        void L(float x, float y, float x2, float y2) => batch.DrawLine(P(x, y), P(x2, y2), color, 2);
+        void R(float x, float y, float w, float h) => batch.DrawRectangle(new RectF(button.X + x, button.Y + y, w, h), color, 2);
+        void F(float x, float y, float w, float h) => batch.FillRectangle(new RectF(button.X + x, button.Y + y, w, h), color);
+        void C(float x, float y, float radius) => batch.DrawCircle(P(x, y), radius, 20, color, 2);
+        void Ship(float x, float y, float size)
+        {
+            L(x, y, x - size, y + size * 2);
+            L(x - size, y + size * 2, x, y + size * 1.5f);
+            L(x, y + size * 1.5f, x + size, y + size * 2);
+            L(x + size, y + size * 2, x, y);
+        }
+        switch (action)
+        {
+            case SidebarAction.Assets: // Four inventory tiles
+                R(6, 6, 8, 8); R(19, 6, 8, 8); R(6, 19, 8, 8); R(19, 19, 8, 8);
+                break;
+            case SidebarAction.Automation: // Gear
+                C(16, 16, 7); C(16, 16, 2);
+                for (int i = 0; i < 8; ++i)
+                {
+                    float angle = i * MathF.PI / 4;
+                    float x = MathF.Cos(angle), y = MathF.Sin(angle);
+                    L(16 + x * 8, 16 + y * 8, 16 + x * 11, 16 + y * 11);
+                }
+                break;
+            case SidebarAction.Colonies: // Ringed planet
+                C(16, 16, 8); L(4, 22, 28, 10); L(4, 22, 5, 17); L(28, 10, 27, 15);
+                break;
+            case SidebarAction.Research: // Laboratory flask
+                L(12, 5, 20, 5); L(13, 5, 13, 13); L(19, 5, 19, 13);
+                L(13, 13, 6, 26); L(19, 13, 26, 26); L(6, 26, 26, 26); L(10, 20, 22, 20);
+                break;
+            case SidebarAction.Economy: // Rising bar chart
+                F(6, 19, 4, 7); F(14, 13, 4, 13); F(22, 6, 4, 20); L(5, 27, 28, 27);
+                break;
+            case SidebarAction.Empire: // Flag
+                L(8, 5, 8, 27); L(8, 6, 25, 6); L(25, 6, 21, 12);
+                L(21, 12, 25, 17); L(25, 17, 8, 17);
+                break;
+            case SidebarAction.Diplomacy: // Conversation bubbles
+                R(5, 6, 16, 12); L(9, 18, 9, 22); L(9, 22, 14, 18);
+                L(24, 11, 27, 11); L(27, 11, 27, 23); L(27, 23, 23, 23);
+                L(23, 23, 23, 27); L(23, 27, 18, 23); L(18, 23, 15, 23);
+                break;
+            case SidebarAction.Fleets:
+                Ship(16, 5, 4); Ship(8, 17, 4); Ship(24, 17, 4);
+                break;
+            case SidebarAction.Espionage: // Watching eye
+                L(4, 16, 11, 9); L(11, 9, 21, 9); L(21, 9, 28, 16);
+                L(28, 16, 21, 23); L(21, 23, 11, 23); L(11, 23, 4, 16); C(16, 16, 4);
+                break;
+            case SidebarAction.Shipyard: // Ship in a dock
+                Ship(16, 6, 5); L(5, 13, 5, 26); L(5, 26, 27, 26); L(27, 26, 27, 13);
+                break;
+            case SidebarAction.Ships:
+                Ship(16, 5, 10); L(13, 25, 13, 28); L(19, 25, 19, 28);
+                break;
+            case SidebarAction.Blueprints: // Plan sheet
+                R(7, 5, 19, 23); L(11, 11, 22, 11); L(11, 11, 11, 23);
+                L(11, 18, 22, 18); L(18, 11, 18, 23);
+                break;
+            case SidebarAction.Construction: // Hammer
+                L(9, 25, 21, 13); L(6, 23, 18, 11); L(6, 23, 9, 26);
+                L(13, 7, 19, 5); L(19, 5, 27, 13); L(27, 13, 23, 17); L(23, 17, 13, 7);
+                break;
+            case SidebarAction.Help: // Question mark
+                L(10, 10, 13, 6); L(13, 6, 20, 6); L(20, 6, 24, 10);
+                L(24, 10, 24, 14); L(24, 14, 16, 19); L(16, 19, 16, 22); F(15, 26, 3, 3);
+                break;
         }
     }
 

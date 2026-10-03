@@ -68,7 +68,9 @@ public static class Dir
             CopyDir(subdir.FullName, Path.Combine(destDirName, subdir.Name), true);
     }
 
-    static string AppData => Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
+    static string AppData => (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("STARDIR_APPDATA"))
+        ? Environment.GetEnvironmentVariable("STARDIR_APPDATA")
+        : Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData))
         .NormalizedFilePath();
 
     // {AppData}/StarDrive

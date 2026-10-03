@@ -13,6 +13,14 @@ namespace Ship_Game
     {
         static float BuildingScoreThreshold = 1;
 
+        // Global construction uses the same priorities as the colony governor.
+        // Called on the simulation thread, just like normal governor evaluation.
+        internal float GlobalBuildingBenefit(Building building)
+        {
+            UpdateGovernorPriorities();
+            return EvaluateBuilding(building, Storage.Prod + IncomingProd, chooseBest: false);
+        }
+
         // Population share of the cap that makes a colony want more roof
         const float BiospherePopPressure = 0.85f;
         // Population share of the cap below which a free biosphere is dead weight

@@ -494,6 +494,7 @@ public static class GlobalStats
         // if the AppData config file doesn't exist, create one based on current defaults
         if (!File.Exists(configFile))
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(configFile));
             AutoDetectScreenResolution(exeCfg);
             exeCfg.SaveAs(configFile, ConfigurationSaveMode.Full);
         }
@@ -516,8 +517,14 @@ public static class GlobalStats
                 if (roamingSettings[setting] == null)
                     roamingSettings.Add(setting, exeSettings[setting].Value);
 
-            // overwrite the version
-            roamingSettings["ConfigVersion"].Value = exeSettings["ConfigVersion"].Value;
+            // overwrite the version. Older or minimal test configurations may
+            // omit ConfigVersion entirely, so add it instead of dereferencing a
+            // missing setting.
+            string version = exeSettings["ConfigVersion"]?.Value ?? baseVersion.ToString();
+            if (roamingSettings["ConfigVersion"] == null)
+                roamingSettings.Add("ConfigVersion", version);
+            else
+                roamingSettings["ConfigVersion"].Value = version;
 
             // force the exe config to save itself,
             // this should synchronize any changed fields

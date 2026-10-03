@@ -107,6 +107,8 @@
 
   <ItemGroup>
     <Compile Include="GlobalSuppressions.cs" />
+    <Compile Include="Ship_Game\AI\EmpireAI\GlobalConstruction.cs" />
+    <Compile Include="Ship_Game\GameScreens\Universe\GlobalConstructionScreen.cs" />
     <Compile Include="Ship_Game\Universe\EmpireAssetsPanel.cs" />
     <Compile Include="Ship_Game\Universe\EmpireAssetsPanel.Draw.cs" />
     <Compile Include="Ship_Game\Universe\EmpireAssetsPanel.Navigation.cs" />

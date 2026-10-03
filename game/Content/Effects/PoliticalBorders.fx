@@ -15,17 +15,53 @@ sampler Metadata = sampler_state { Texture = (Regions); MinFilter = Point; MagFi
 sampler Palette = sampler_state { Texture = (ClaimantColors); MinFilter = Point; MagFilter = Point; MipFilter = Point; AddressU = Clamp; AddressV = Clamp; };
 float Decode(float3 rgb) { return dot(floor(rgb * 255 + 0.5), float3(1,256,65536)); }
 float2 Address(float index, float2 size) { return (float2(index - floor(index / size.x) * size.x, floor(index / size.x)) + 0.5) / size; }
+float3 StripeColor(float2 range, float stripe)
+{
+    float index = stripe - floor(stripe / max(range.y,1)) * max(range.y,1);
+    return tex2Dlod(Palette, float4(Address(range.x + index, PaletteSize),0,0)).rgb;
+}
+float BandIntegral(float position, float band, float count)
+{
+    float cycles = floor(position / count);
+    return cycles + saturate(position - cycles * count - band);
+}
 float3 RegionColor(float id, float2 worldCell)
 {
     float2 range = tex2D(Metadata, Address(id, RegionSize)).rg;
-    float stripe = floor((worldCell.x + worldCell.y) * StripeScale / lerp(8, 2, Minimap));
-    float index = stripe - floor(stripe / max(range.y,1)) * max(range.y,1);
-    return tex2D(Palette, Address(range.x + index, PaletteSize)).rgb;
+    // Twice as many main-map stripes, anchored in world space. Integrate the
+    // pixel footprint instead of point-sampling hard diagonal stripe edges.
+    float phase = (worldCell.x + worldCell.y) * StripeScale / lerp(4, 2, Minimap);
+    float footprint = max(fwidth(phase), 0.0001);
+    float3 color = StripeColor(range,0);
+    float stripe = floor(phase), within = frac(phase);
+    if (range.y > 1 && footprint <= 1)
+    {
+        float left = saturate(0.5 - within / footprint);
+        float right = saturate(0.5 - (1-within) / footprint);
+        color = StripeColor(range,stripe-1)*left
+              + StripeColor(range,stripe)*(1-left-right)
+              + StripeColor(range,stripe+1)*right;
+    }
+    // At extreme distance a pixel can cover multiple bands. Average their
+    // actual coverage so all claimants survive without flashing/aliasing.
+    else if (range.y > 1)
+    {
+        color = 0;
+        float lo = phase-footprint*0.5, hi = phase+footprint*0.5;
+        [loop] for (int band = 0; band < (int)range.y; ++band)
+        {
+            float coverage = BandIntegral(hi,band,range.y)-BandIntegral(lo,band,range.y);
+            color += StripeColor(range,band)*coverage;
+        }
+        color /= footprint;
+    }
+    return color;
 }
 float4 Material(float id, float other, float distance, float2 worldCell)
 {
     float halfWidth = lerp(2.1,0.5,Minimap);
-    float core = (1-smoothstep(halfWidth-0.65,halfWidth+0.65,distance))*lerp(0.8,0.7,Minimap);
+    float antialias = max(0.65, 0.5*fwidth(distance));
+    float core = (1-smoothstep(halfWidth-antialias,halfWidth+antialias,distance))*lerp(0.8,0.7,Minimap);
     float fill = id > 0 ? lerp(0.012,0.14,Minimap) : 0;
     // Fade toward the territory interior, leaving space outside the outline clear.
     // Keep the band inside the encoded 32-cell distance range at every zoom.
@@ -35,12 +71,13 @@ float4 Material(float id, float other, float distance, float2 worldCell)
     if (id == 0 && other == 0) alpha = 0;
     float3 color = RegionColor(id > 0 ? id : other, worldCell);
     float grain = frac(sin(dot(floor(worldCell), float2(12.9898,78.233))) * 43758.5453);
-    color = saturate(color * (1 + (grain - 0.5) * 0.05 * (1-Minimap)*(1-saturate(core/0.8))));
+    float grainVisibility = smoothstep(0.75,2.0,PixelsPerCell);
+    color = saturate(color * (1 + (grain - 0.5) * 0.05 * grainVisibility * (1-Minimap)*(1-saturate(core/0.8))));
     return float4(color * alpha, alpha);
 }
 float SignedDistance(float4 sample, float region)
 {
-    return sample.a*32*(Decode(sample.rgb) == region ? 1 : -1);
+    return sample.a*sample.a*32*(Decode(sample.rgb) == region ? 1 : -1);
 }
 float4 BorderPixel(SimpleVSOutput input) : COLOR0
 {

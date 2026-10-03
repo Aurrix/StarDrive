@@ -183,8 +183,15 @@ namespace Ship_Game.AI
         }
 
         
-        public static IShipDesign StationDesignOrNull(string name)
+    public static IShipDesign StationDesignOrNull(string name)
             => name.NotEmpty() && ResourceManager.Ships.GetDesign(name, out IShipDesign design) ? design : null;
+
+        static bool HasModule(IShipDesign design, string uid)
+        {
+            foreach (string installed in design.UniqueModuleUIDs)
+                if (installed == uid) return true;
+            return false;
+        }
 
         public static IShipDesign PickResearchStation(Empire empire)
         {
@@ -215,7 +222,13 @@ namespace Ship_Game.AI
                 var researchStations = potentialResearchStations.
                     Filter(s  => s.BaseResearchPerTurn.InRange(maxResearchPerTurn * 0.8f, maxResearchPerTurn));
 
-                bestResearchStation = researchStations.FindMax(s => s.BaseStrength / s.SurfaceArea);
+                // When research output is comparable, prefer stations that also
+                // improve strategic awareness or can anchor a local claim.
+                bestResearchStation = researchStations.FindMax(s =>
+                    s.BaseStrength / s.SurfaceArea
+                    + (HasModule(s, "ObservationPost") ? 0.15f : 0f)
+                    + (HasModule(s, "StarbaseCommand") ? 0.10f : 0f)
+                    + (HasModule(s, "StationWarpInhibitor") ? 0.05f : 0f));
             }
 
             if (empire.Universe?.Debug == true)
@@ -258,7 +271,10 @@ namespace Ship_Game.AI
                 var miningStations = potentialMiningStations.
                     Filter(s => GetRefiningScore(s).InRange(highestScore * 0.98f, highestScore));
 
-                bestMiningStation = miningStations.FindMax(s => s.BaseCargoSpace / s.BaseRefiningPerTurn);
+                bestMiningStation = miningStations.FindMax(s =>
+                    s.BaseCargoSpace / s.BaseRefiningPerTurn
+                    + (HasModule(s, "StarbaseCommand") ? 0.10f : 0f)
+                    + (HasModule(s, "StationWarpInhibitor") ? 0.05f : 0f));
             }
 
             if (empire.Universe?.Debug == true)

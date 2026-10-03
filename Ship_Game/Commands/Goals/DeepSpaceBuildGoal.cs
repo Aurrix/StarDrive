@@ -2,6 +2,7 @@
 using Ship_Game.AI;
 using Ship_Game.Data.Serialization;
 using Ship_Game.Ships;
+using Ship_Game.Universe;
 
 namespace Ship_Game.Commands.Goals
 {
@@ -51,14 +52,25 @@ namespace Ship_Game.Commands.Goals
 
         bool TetherPlanetTakenByOtherEmpire => TetherPlanet?.Owner != null && TetherPlanet.Owner != Owner;
 
+        public bool ExoticStationSiteValid()
+        {
+            if (!ToBuild.IsMiningStation && !ToBuild.IsResearchStation) return true;
+            ExplorableGameObject body = TetherPlanet != null ? TetherPlanet : TargetSystem;
+            return body != null
+                && ExplorableGameObject.CanBuildExoticStationAt(Owner, BuildPosition)
+                && (!ToBuild.IsMiningStation || !body.HasExoticStation(Owner, mining: true, except: OldShip))
+                && (!ToBuild.IsResearchStation || !body.HasExoticStation(Owner, mining: false, except: OldShip));
+        }
+
         protected override GoalStep? PreEvaluate()
         {
-            if (TetherPlanetTakenByOtherEmpire)
+            if (TetherPlanetTakenByOtherEmpire || !ExoticStationSiteValid())
             {
                 // We no longer own the planet this orbital was for: scrap the in-flight
                 // constructor (if one was already built) and abandon the goal. The base
                 // Evaluate removes the goal once we return GoalFailed.
                 FinishedShip?.AI.OrderScuttleShip();
+                PlanetBuildingAt?.Construction.Cancel(this);
                 return GoalStep.GoalFailed;
             }
 

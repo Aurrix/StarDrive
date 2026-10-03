@@ -57,15 +57,16 @@ internal sealed class BorderVisualRenderer : IDisposable
         public Generation(BorderScene scene, float radius, Generation previous = null)
         {
             Scene = scene;
-            int level = BorderVisualTile.ChooseLevel(radius * 2 / 450);
-            Overview = Keys(new(-radius, -radius, radius * 2, radius * 2), level);
+            Overview = PresentationKeys(scene, radius);
+            var required = new HashSet<Key>(Overview);
             if (previous != null)
                 foreach (var pair in previous.Tiles)
                 {
                     RectF b = pair.Key.Bounds;
                     float gutter = pair.Key.Cell * BorderVisualTile.Gutter;
                     b = new(b.X-gutter,b.Y-gutter,b.W+gutter*2,b.H+gutter*2);
-                    if (scene.CanReuseTile(previous.Scene,b)) Tiles.Add(pair.Key,pair.Value.Retain());
+                    if (required.Contains(pair.Key) && scene.CanReuseTile(previous.Scene,b))
+                        Tiles.Add(pair.Key,pair.Value.Retain());
                 }
         }
         public void Dispose() { foreach (Tile tile in Tiles.Values) tile.Dispose(); Tiles.Clear(); }
@@ -84,14 +85,11 @@ internal sealed class BorderVisualRenderer : IDisposable
     readonly Queue<Tile> PaletteUpdates = new();
     BorderScene PaletteScene;
     int? Level;
-    int BudgetLevel = int.MinValue;
+    float StripeReferenceCell = 1000f;
     int LastDrawLevel;
-    float StripeCell, StripeFrom, StripeTarget;
-    long StripeChanged;
     bool Disposed;
     bool HideStaleKnowledge;
     BorderScene LastKnowledgeChecked;
-    const long GenerationBudget = 256L*1024*1024;
     public int JobsStarted { get; private set; }
     public int TilesUploaded { get; private set; }
     public long GpuBytes => (Displayed?.Bytes ?? 0) + (Building != Displayed ? Building?.Bytes ?? 0 : 0);
@@ -135,6 +133,8 @@ internal sealed class BorderVisualRenderer : IDisposable
             return false;
         }
         Building = generation;
+        // This is a validated cache of this scene, not a record of observed
+        // intelligence. Publish it without discarding and rebuilding its tiles.
         foreach (var tile in restored) Uploads.Enqueue(tile);
         return true;
     }
@@ -153,7 +153,9 @@ internal sealed class BorderVisualRenderer : IDisposable
         SavedOverviewScene = Displayed.Scene;
     }
     internal bool IsViewReady(RectF view, float worldPerPixel)
-        => Displayed != null && Displayed.Complete(PrefetchKeys(view, Level ?? BorderVisualTile.ChooseLevel(worldPerPixel)));
+    {
+        return Displayed != null && Displayed.Complete(Displayed.Overview);
+    }
 
     public BorderVisualRenderer(GraphicsDevice device)
     {
@@ -173,18 +175,37 @@ internal sealed class BorderVisualRenderer : IDisposable
         return keys;
     }
 
-    static List<Key> PrefetchKeys(RectF view, int level)
+    internal static List<Key> PresentationKeys(BorderScene scene, float radius)
     {
-        float margin = new Key(level,0,0).Cell*256;
-        List<Key> keys = Keys(new(view.X-margin,view.Y-margin,view.W+margin*2,view.H+margin*2),level);
-        return keys.Count <= 240 ? keys : Keys(view,level);
+        int level = BorderVisualTile.PresentationLevel(radius);
+        var keys = new HashSet<Key>(Keys(new(-radius,-radius,radius*2,radius*2),level));
+        float padding = new Key(level,0,0).Cell * BorderVisualTile.Gutter;
+        foreach (var empire in scene.Empires)
+        {
+            if (!empire.Active || empire.Snapshot == null || !scene.RevealAll && !empire.Known) continue;
+            BorderField field = scene.RevealAll ? empire.Snapshot.Field : empire.Snapshot.KnownField;
+            if (field.Columns == 0 || field.Rows == 0) continue;
+            // The galaxy limits source placement, not the extent of its claims.
+            // Include finite field support and the material's distance halo.
+            // Camera bounds never participate in this allocation decision.
+            RectF bounds = field.Bounds;
+            keys.UnionWith(Keys(new(bounds.X-padding,bounds.Y-padding,
+                bounds.W+padding*2,bounds.H+padding*2),level));
+        }
+        var ordered = new List<Key>(keys);
+        ordered.Sort((a,b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
+        return ordered;
     }
+
     public void Update(BorderScene latest, float radius, RectF view, float worldPerPixel, bool overviewOnly = false)
     {
         if (Disposed || latest == null) return;
         if (!ReferenceEquals(latest, LastKnowledgeChecked))
         {
-            HideStaleKnowledge = Displayed != null && latest.KnowledgeRemovedSince(Displayed.Scene);
+            // Knowledge loss is fog-of-war, not a reason to erase the last
+            // observed border. Existing tiles remain a dimmed last-seen record;
+            // new knowledge still causes a replacement generation below.
+            HideStaleKnowledge = false;
             LastKnowledgeChecked = latest;
         }
         // Classification already skips missing fields. One empire waiting for
@@ -203,8 +224,19 @@ internal sealed class BorderVisualRenderer : IDisposable
             Building.Scene = PaletteScene;
             PaletteScene = null;
         }
-        if (Level == null || new Key(Level.Value,0,0).Cell / worldPerPixel is < 0.7f or > 1.2f)
-            Level = Math.Max(BudgetLevel,BorderVisualTile.ChooseLevel(worldPerPixel));
+        // A generation owns one deterministic raster level. Camera zoom is a
+        // projection concern and must not select a new level or trigger a
+        // second rasterization of unchanged territory.
+        if (Level == null)
+        {
+            // Pick the raster level from the fixed world extent, never from
+            // the camera.  This makes the first frame at any zoom use the
+            // same world-anchored pixels and prevents zoom-dependent jobs.
+            Level = BorderVisualTile.PresentationLevel(radius);
+            // Preserve a world-space stripe wavelength as raster precision
+            // changes. The material now uses four reference cells per band.
+            StripeReferenceCell = new Key(BorderVisualTile.ChooseLevel(radius * 2 / 450),0,0).Cell;
+        }
         // Finish a useful generation before accepting the newest request: a busy
         // simulation cannot continuously cancel every build before publication.
         Building ??= new(latest, radius);
@@ -221,16 +253,6 @@ internal sealed class BorderVisualRenderer : IDisposable
         {
             BorderVisualTile data = Uploads.Dequeue();
             int bytes = data.Territory.Length*8 + (data.Metadata.Length+data.Colors.Length)*16;
-            if (Building.Bytes + bytes > GenerationBudget)
-            {
-                // Fall back to the complete overview until a coarser detailed
-                // viewport fits. Never drop selected small claims from a tile.
-                var remove = new List<Key>();
-                foreach (Key key in Building.Tiles.Keys) if (!Building.Overview.Contains(key)) remove.Add(key);
-                foreach (Key key in remove) { Building.Tiles[key].Dispose(); Building.Tiles.Remove(key); }
-                ++Level;
-                BudgetLevel = Level.Value;
-            }
             Building.Tiles.Add(data.Address, new(Device, data));
             uploadBytes += bytes;
             ++TilesUploaded;
@@ -249,12 +271,7 @@ internal sealed class BorderVisualRenderer : IDisposable
             }
             Building = new(latest, radius, Displayed);
         }
-        List<Key> detail = overviewOnly ? Building.Overview : Keys(view, Level.Value);
-        List<Key> prefetched = overviewOnly ? Building.Overview : PrefetchKeys(view, Level.Value);
-        // A pathological viewport must not exhaust graphics memory. The coherent
-        // overview remains available; no individual claims are removed.
-        if (detail.Count > 240) detail = Building.Overview;
-        if (Building.Complete(Building.Overview) && Building.Complete(detail))
+        if (Building.Complete(Building.Overview))
         {
             if (Displayed != Building)
             {
@@ -276,33 +293,14 @@ internal sealed class BorderVisualRenderer : IDisposable
                     Building = new(latest, radius, Displayed);
             }
         }
-        else if (Displayed == null && Building.Complete(Building.Overview))
-        {
-            Displayed = Building;
-            NextSceneRefresh = Environment.TickCount64 + SceneRefreshMilliseconds;
-        }
         CaptureOverview(radius);
         if (Worker != null || Uploads.Count != 0) return;
-        // Keep visible and overview tiles, evict offscreen detail before allocating.
-        if (Building.Tiles.Count > 250)
-        {
-            var keep = new HashSet<Key>(prefetched);
-            keep.UnionWith(Building.Overview);
-            var remove = new List<Key>();
-            foreach (Key key in Building.Tiles.Keys) if (!keep.Contains(key)) remove.Add(key);
-            foreach (Key key in remove) { Building.Tiles[key].Dispose(); Building.Tiles.Remove(key); }
-        }
+        // Build the bounded world grid once. Camera motion only culls drawing;
+        // it never allocates tiles or changes the raster's resolution.
         const int tilesPerJob = 1;
         var missing = new List<Key>(tilesPerJob);
         foreach (Key key in Building.Overview)
             if (!Building.Tiles.ContainsKey(key) && missing.Count < tilesPerJob) missing.Add(key);
-        if (missing.Count == 0)
-            foreach (Key key in detail)
-                if (!Building.Tiles.ContainsKey(key) && missing.Count < tilesPerJob) missing.Add(key);
-        // Visible detail takes precedence over the offscreen prefetch ring.
-        if (prefetched.Count <= 240)
-            foreach (Key key in prefetched)
-                if (missing.Count < tilesPerJob && !Building.Tiles.ContainsKey(key) && !missing.Contains(key)) missing.Add(key);
         if (missing.Count == 0) return;
         BorderScene scene = Building.Scene;
         var overviewKeys = Building.Overview;
@@ -323,42 +321,39 @@ internal sealed class BorderVisualRenderer : IDisposable
     public void Draw(SpriteRenderer renderer, Matrix matrix, RectF view, float worldPerPixel)
     {
         if (Displayed == null || HideStaleKnowledge) return;
-        List<Key> detail = Keys(view, Level ?? 0,240);
-        List<Key> selected = detail != null && Displayed.Complete(detail) ? detail : null;
-        if (selected == null)
+        List<Key> selected = Displayed.Overview;
+        // Keep contested stripes world anchored. Changing resident LOD during a
+        // zoom must not animate their frequency or make an unchanged border
+        // appear to shimmer.
+        LastDrawLevel = selected[0].Level;
+        foreach (Key key in selected)
         {
-            // A zoom request must not immediately discard the last useful LOD.
-            // Prefer the closest complete resident level, including its prefetched
-            // ring, before falling back to the much coarser galaxy overview.
-            var levels = new HashSet<int>();
-            foreach (Key key in Displayed.Tiles.Keys) levels.Add(key.Level);
-            float best = float.MaxValue;
-            foreach (int level in levels)
-            {
-                float error = Math.Abs(MathF.Log2(new Key(level,0,0).Cell / worldPerPixel));
-                if (error >= best) continue;
-                List<Key> keys = Keys(view,level,240);
-                if (keys != null && Displayed.Complete(keys)) { selected = keys; best = error; }
-            }
-            selected ??= Displayed.Overview;
+            RectF bounds = key.Bounds;
+            if (bounds.Right < view.Left || bounds.Left > view.Right
+                || bounds.Bottom < view.Top || bounds.Top > view.Bottom) continue;
+            DrawTile(renderer, matrix, Displayed.Tiles[key], bounds, key.Cell / worldPerPixel, false, 1);
         }
-        if (StripeCell == 0 || LastDrawLevel != selected[0].Level)
-        {
-            StripeTarget = selected[0].Cell;
-            StripeFrom = StripeCell == 0 ? StripeTarget : StripeCell;
-            StripeChanged = Environment.TickCount64;
-            LastDrawLevel = selected[0].Level;
-        }
-        float transition = Math.Clamp((Environment.TickCount64-StripeChanged)/200f,0,1);
-        StripeCell = StripeFrom + (StripeTarget-StripeFrom)*transition;
-        foreach (Key key in selected) DrawTile(renderer, matrix, Displayed.Tiles[key], key.Bounds, key.Cell / worldPerPixel, false, 1);
     }
     public string HoverText(Vector2 point, float worldPerPixel)
     {
         if (Displayed == null || HideStaleKnowledge) return null;
         float cell = new Key(LastDrawLevel,0,0).Cell;
         var key = new Key(LastDrawLevel,BorderVisualTile.TileCoordinate(point.X,cell),BorderVisualTile.TileCoordinate(point.Y,cell));
-        if (!Displayed.Tiles.TryGetValue(key,out Tile tile)) return null;
+        if (!Displayed.Tiles.TryGetValue(key,out Tile tile))
+        {
+            // Hover may arrive before the first Draw call establishes a detail
+            // level, or while the pinned level only has its overview resident.
+            // Find the resident tile containing the point instead of returning
+            // a false negative.
+            foreach (var pair in Displayed.Tiles)
+            {
+                RectF bounds = pair.Key.Bounds;
+                if (point.X >= bounds.Left && point.X <= bounds.Right
+                    && point.Y >= bounds.Top && point.Y <= bounds.Bottom)
+                { key = pair.Key; tile = pair.Value; cell = key.Cell; break; }
+            }
+            if (tile == null) return null;
+        }
         int x = (int)MathF.Floor(point.X/cell)-key.X*256+32;
         int y = (int)MathF.Floor(point.Y/cell)-key.Y*256+32;
         Color sample = tile.Data.Territory[y*320+x];
@@ -366,7 +361,7 @@ internal sealed class BorderVisualRenderer : IDisposable
         if (id == 0) return null;
         var members = new SortedSet<int>(tile.Data.Regions[id].Members);
         bool contested = members.Count > 1;
-        if (sample.A/255f*16*cell <= worldPerPixel*3)
+        if (BorderVisualTile.DecodeDistance(sample)*cell <= worldPerPixel*3)
         {
             int radius = Math.Min(16,Math.Max(1,(int)MathF.Ceiling(worldPerPixel*3/cell)));
             foreach (var (dx,dy) in new[] {(-radius,0),(radius,0),(0,-radius),(0,radius)})
@@ -415,7 +410,7 @@ internal sealed class BorderVisualRenderer : IDisposable
         shader["CellOrigin"].SetValue(new XnaVector2(tile.Data.Address.X*256-32,tile.Data.Address.Y*256-32));
         shader["PixelsPerCell"].SetValue(pixelsPerCell);
         shader["Minimap"].SetValue(mini ? 1f : 0f);
-        shader["StripeScale"].SetValue(mini ? 1f : tile.Data.Address.Cell / StripeCell);
+        shader["StripeScale"].SetValue(tile.Data.Address.Cell / StripeReferenceCell);
         Device.BlendState = BlendState.AlphaBlend;
         Device.DepthStencilState = DepthStencilState.None;
         renderer.Begin(matrix, Effect);

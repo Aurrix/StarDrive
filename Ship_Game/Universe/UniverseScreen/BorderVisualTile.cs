@@ -17,7 +17,7 @@ internal sealed class SavedBorderOverview
     [StarData] public byte[] SceneKey;
     [StarData] public byte[][] Tiles;
     [StarData] public byte[][] DetailTiles;
-    internal const int CurrentVersion = 3;
+    internal const int CurrentVersion = 5;
 }
 
 // CPU-only immutable products. No graphics device or live empire is accessed here.
@@ -76,8 +76,22 @@ internal sealed class BorderVisualTile
     }
     public static Color Encode(int id, byte value) => new((byte)id, (byte)(id >> 8), (byte)(id >> 16), value);
     public static int Decode(Color value) => value.R | value.G << 8 | value.B << 16;
+    // Spend most of the byte's precision near the contour, where distance
+    // rounding moves the visible line. Farther samples only drive the glow.
+    // Keep the square decoding in sync with PoliticalBorders.fx.
+    public static float DecodeDistance(Color value)
+    {
+        float encoded = value.A / 255f;
+        return encoded * encoded * DistanceRange;
+    }
     public static int TileCoordinate(float world, float cell) => (int)MathF.Floor(world / (Interior * cell));
     public static int ChooseLevel(float worldPerPixel) => (int)MathF.Round(4 * MathF.Log2(worldPerPixel * 0.9f / 1000));
+
+    // One complete, camera-independent grid. The old 450-sample loading
+    // overview is too coarse to serve as the main map's permanent geometry.
+    // 3072 samples keep distant curves smooth and preserve close-view contour
+    // precision on the largest galaxies, within the resident tile budget.
+    internal static int PresentationLevel(float radius) => ChooseLevel(radius * 2 / 3072);
 
     internal byte[] Save()
     {
@@ -245,7 +259,7 @@ internal sealed class BorderVisualTile
                             if (d < distance) { distance = d; neighbor = edge.A == id ? edge.B : edge.A; }
                         }
                     }
-                Territory[p] = Encode(id, (byte)Math.Clamp((int)MathF.Round(distance / DistanceRange * 255), 0, 255));
+                Territory[p] = Encode(id, (byte)Math.Clamp((int)MathF.Round(MathF.Sqrt(distance / DistanceRange) * 255), 0, 255));
                 Neighbor[p] = Encode(neighbor, 0);
             }
         var palette = new List<Vector4> { Vector4.Zero };

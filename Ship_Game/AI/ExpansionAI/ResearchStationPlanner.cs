@@ -100,9 +100,10 @@ namespace Ship_Game.AI.ExpansionAI
             {
                 SolarSystem system = solarBody.System ?? solarBody as SolarSystem;
                 if (solarBody.IsExploredBy(Owner) 
-                    && !solarBody.IsResearchStationDeployedBy(Owner) // this bit is for performance - faster than HasGoal
+                    && !solarBody.HasExoticStation(Owner, mining: false)
+                    && ExplorableGameObject.CanBuildExoticStationAt(Owner, solarBody.Position)
                     && (ignoreDistance || HelperFunctions.InGoodDistanceForReseachOrMiningOps(Owner, system, averageDist, Influense(system.Position)))
-                    && !Owner.AI.HasGoal(g => g.IsResearchStationGoal(solarBody))
+                    && !solarBody.HasExoticStationGoal(Owner, mining: false)
                     && (Owner.Universe.Remnants == null 
                         || !Owner.Universe.Remnants.AI.HasGoal(g => g is RemnantPortal && g.TargetShip.System == solarBody)))
                 {

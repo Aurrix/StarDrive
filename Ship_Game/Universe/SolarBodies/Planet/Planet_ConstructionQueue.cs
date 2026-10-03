@@ -1,5 +1,6 @@
 ﻿using Ship_Game.AI;
 using Ship_Game.Ships;
+using System;
 using System.Linq;
 using SDGraphics;
 using SDUtils;
@@ -11,7 +12,7 @@ namespace Ship_Game;
 public partial class Planet
 {
     [StarData] public bool BiosphereInTheWorks { get; private set; }
-    Array<Building>GetBuildingsWeCanBuildHere()
+    internal Array<Building> GetBuildingsWeCanBuildHere()
     {
         Array<Building> canBuild = [];
         if (Owner == null)
@@ -87,6 +88,52 @@ public partial class Planet
     // exists on planet OR in queue
     public bool BuildingBuiltOrQueued(Building b) => BuildingBuilt(b.BID) || BuildingInQueue(b.BID);
     public bool BuildingBuiltOrQueued(int bid) => BuildingBuilt(bid) || BuildingInQueue(bid);
+
+    // Read-only forecast for global construction. Account for worker allocation,
+    // mineral yield, taxes/consumption, queued work and stockpile release limits.
+    internal float GlobalConstructionOutput(Building building)
+        => GlobalConstructionOutput(new QueueItem(this) { isBuilding = true, Building = building });
+
+    float GlobalConstructionOutput(QueueItem item)
+    {
+        if (GovernorOff || Prod.PercentLock)
+            return float.IsFinite(Prod.NetIncome) ? Math.Max(0, Prod.NetIncome) : 0;
+        float availableWorkers = IsCybernetic ? 1 : 1 - Math.Max(Food.Percent, Food.GetAveragePercent());
+        float workers = Math.Clamp(availableWorkers * EvaluateProductionQueue(item), 0, 1);
+        float output = Prod.NetFlatBonus + workers * (Prod.NetMaxPotential - Prod.NetFlatBonus);
+        return float.IsFinite(output) ? Math.Max(0, output) : 0;
+    }
+
+    internal float GlobalConstructionTurns(Building building, System.Collections.Generic.IEnumerable<Building> reserved)
+    {
+        float stock = Math.Max(0, ExportProd ? Storage.Prod / 2 : Storage.Prod);
+        float infrastructure = Math.Max(0, InfraStructure);
+        float turns = 0;
+        foreach (QueueItem item in ConstructionQueue)
+        {
+            if (item.IsCancelled) continue;
+            Spend(Math.Max(0, item.ProductionNeeded), GlobalConstructionOutput(item));
+        }
+        foreach (Building pending in reserved)
+            Spend(pending.ActualCost(Owner), GlobalConstructionOutput(pending));
+        Spend(building.ActualCost(Owner), GlobalConstructionOutput(building));
+        return float.IsFinite(turns) ? Math.Max(1, turns + CrippledTurns) : float.PositiveInfinity;
+
+        void Spend(float cost, float output)
+        {
+            // Stockpiled production is released at infrastructure/turn; it is
+            // neither instantly spendable nor an endless production source.
+            if (stock > 0 && infrastructure > 0)
+            {
+                float boostedTurns = Math.Min(cost / (output + infrastructure), stock / infrastructure);
+                cost = Math.Max(0, cost - boostedTurns * (output + infrastructure));
+                stock = Math.Max(0, stock - boostedTurns * infrastructure);
+                turns += boostedTurns;
+            }
+            if (cost > 0.001f)
+                turns += output > 0 ? cost / output : float.PositiveInfinity;
+        }
+    }
 
     int TurnsUntilQueueCompleted(float priority, Array<QueueItem> newItems = null)
     {

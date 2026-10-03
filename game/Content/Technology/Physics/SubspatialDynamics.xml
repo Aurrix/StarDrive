@@ -11,6 +11,9 @@
     <UnlockedMod>
       <ModuleUID>Warp Inhibitor</ModuleUID>
     </UnlockedMod>
+    <UnlockedMod>
+      <ModuleUID>StationWarpInhibitor</ModuleUID>
+    </UnlockedMod>
   </ModulesUnlocked>
   <BuildingsUnlocked />
   <BonusUnlocked>

@@ -280,20 +280,12 @@ internal sealed class BorderSavePreparation
     readonly BorderScene Scene;
     readonly SavedBorderOverview PreviousOverview;
     readonly float Radius;
-    readonly List<BorderVisualTile.Key> DetailKeys;
 
     internal BorderSavePreparation(UniverseState state)
     {
         Empires = state.Empires.ToArr();
         Radius = state.Size;
         PreviousOverview = state.BorderOverviewCache;
-        var view = state.Screen.ExactVisibleWorldRect;
-        if (view.Width > 0 && view.Height > 0 && state.Screen.ScreenWidth > 0)
-        {
-            float pixel = (float)view.Width/state.Screen.ScreenWidth;
-            int level = BorderVisualTile.ChooseLevel(pixel);
-            DetailKeys = BorderVisualRenderer.Keys(new(view.X1,view.Y1,view.Width,view.Height),level,128);
-        }
         Inputs = new (Empire.InfluenceNode[], BorderField.Node[], float)[Empires.Length];
         Previous = new SavedBorderGeometry[Empires.Length];
         var placeholders = new BorderSnapshot[Empires.Length];
@@ -309,7 +301,7 @@ internal sealed class BorderSavePreparation
     internal SavedBorderOverview Complete()
     {
         var timer = System.Diagnostics.Stopwatch.StartNew();
-        Log.Info($"Preparing border save: {Empires.Length} empires, {DetailKeys?.Count ?? 0} visible tiles");
+        Log.Info($"Preparing border save: {Empires.Length} empires");
         for (int i = 0; i < Empires.Length; ++i)
         {
             var input = Inputs[i];
@@ -320,19 +312,14 @@ internal sealed class BorderSavePreparation
         byte[] key = Scene.SaveKey();
         bool reuse = PreviousOverview?.Version == SavedBorderOverview.CurrentVersion && PreviousOverview.Radius == Radius
             && PreviousOverview.SceneKey != null && key.AsSpan().SequenceEqual(PreviousOverview.SceneKey);
-        int level = BorderVisualTile.ChooseLevel(Radius*2/450);
-        var keys = BorderVisualRenderer.Keys(new(-Radius,-Radius,Radius*2,Radius*2),level);
+        var keys = BorderVisualRenderer.PresentationKeys(Scene,Radius);
         var tiles = reuse ? PreviousOverview.Tiles : new byte[keys.Count][];
         var scratch = new BorderVisualTile.Scratch();
         if (!reuse)
             for (int i = 0; i < tiles.Length; ++i) tiles[i] = new BorderVisualTile(Scene,keys[i],scratch).Save();
-        var detail = new List<byte[]>();
-        if (DetailKeys != null)
-            foreach (var address in DetailKeys)
-                if (!keys.Contains(address)) detail.Add(new BorderVisualTile(Scene,address,scratch).Save());
-        Log.Info($"Border save prepared in {timer.ElapsedMilliseconds}ms: {tiles.Length} overview, {detail.Count} detail tiles");
+        Log.Info($"Border save prepared in {timer.ElapsedMilliseconds}ms: {tiles.Length} tiles");
         return new() { Version = SavedBorderOverview.CurrentVersion, Radius = Radius, SceneKey = key,
-            Tiles = tiles, DetailTiles = detail.ToArray() };
+            Tiles = tiles };
     }
 
     internal void Release()
@@ -488,11 +475,28 @@ internal sealed class BorderScene
             RectF b = e.Snapshot.Field.Bounds;
             return b.Right >= bounds.Left && b.Left <= bounds.Right && b.Bottom >= bounds.Top && b.Top <= bounds.Bottom;
         }
+        bool SameShape(BorderSnapshot x, BorderSnapshot y)
+        {
+            if (x == null || y == null || x.Nodes.Length != y.Nodes.Length) return x == y;
+            for (int n = 0; n < x.Nodes.Length; ++n)
+            {
+                var a = x.Nodes[n]; var b = y.Nodes[n];
+                if (a.Source != b.Source || a.Position != b.Position || a.Radius != b.Radius) return false;
+            }
+            return true;
+        }
         for (int i = 0; i < Empires.Length; ++i)
         {
             Entry a = Empires[i], b = previous.Empires[i];
-            if (a.Id != b.Id || a.Color != b.Color || a.Name != b.Name) return false;
-            if ((a.Snapshot != b.Snapshot || a.Active != b.Active || a.Known != b.Known) && (Touches(a) || Touches(b))) return false;
+            // Palette-only changes are handled by the render-thread recolor
+            // path; categorical territory can be reused without raster work.
+            if (a.Id != b.Id || a.Name != b.Name) return false;
+            // Losing visibility must preserve the previous raster as a
+            // last-seen border. Newly gained visibility still requires a
+            // rebuild so the newly observed territory can appear.
+            bool knowledgeGained = !b.Known && a.Known;
+            bool shapeChanged = !SameShape(a.Snapshot, b.Snapshot);
+            if ((shapeChanged || a.Active != b.Active || knowledgeGained) && (Touches(a) || Touches(b))) return false;
             for (int j = 0; j < Empires.Length; ++j)
                 if (!SameOverlap(previous,i,j) && (Touches(a) || Touches(b)
                     || Touches(Empires[j]) || Touches(previous.Empires[j]))) return false;

@@ -263,20 +263,18 @@ namespace Ship_Game
             double worldSizeToMaskSize = (512.0 / universeWidth);
 
             var uiNode = ResourceManager.Texture("UI/node");
-            var ships = Player.OwnedShips;
             // White stamp keeps rgb tracking alpha so the FogMap stays premul-
             // correct for the AlphaBlend composite in UpdateFogOfWarInfluences.
             var shipSensorMask = new Color(255, 255, 255, 255);
-            foreach (Ship ship in ships)
+            // SensorNodes is simulation-owned and includes planets, allied
+            // sensors, observation modules, and espionage moles.
+            foreach (ref Empire.InfluenceNode node in Player.SensorNodes.AsSpan())
             {
-                if (ship != null && ship.InFrustum)
-                {
-                    double posX = ship.Position.X * worldSizeToMaskSize + 256;
-                    double posY = ship.Position.Y * worldSizeToMaskSize + 256;
-                    double size = (ship.SensorRange * 2.0) * worldSizeToMaskSize;
-                    var rect = new RectF(posX, posY, size, size);
-                    batch.Draw(uiNode, rect, shipSensorMask, 0f, uiNode.CenterF, SpriteEffects.None, 1f);
-                }
+                double posX = node.Position.X * worldSizeToMaskSize + 256;
+                double posY = node.Position.Y * worldSizeToMaskSize + 256;
+                double size = (node.Radius * 2.0) * worldSizeToMaskSize;
+                var rect = new RectF(posX, posY, size, size);
+                batch.Draw(uiNode, rect, shipSensorMask, 0f, uiNode.CenterF, SpriteEffects.None, 1f);
             }
             batch.SafeEnd();
             FogMap = back;

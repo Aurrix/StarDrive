@@ -34,6 +34,7 @@ namespace Ship_Game.Gameplay
         [StarData] public readonly bool PlatformModule   = true;
         [StarData] public readonly bool StationModule    = true;
         [StarData] public readonly float SensorRange;
+        [StarData] public readonly float BorderClaimRadius;
         [StarData] public readonly float MechanicalBoardingDefense;
         [StarData] public readonly float EMPProtection;
         [StarData] public readonly int PowerRadius;
@@ -138,6 +139,7 @@ namespace Ship_Game.Gameplay
             PlatformModule              = s.PlatformModule;
             StationModule               = s.StationModule;
             SensorRange                 = s.SensorRange;
+            BorderClaimRadius           = s.BorderClaimRadius;
             MechanicalBoardingDefense   = s.MechanicalBoardingDefense;
             EMPProtection               = s.EMPProtection;
             PowerRadius                 = s.PowerRadius;
@@ -249,6 +251,7 @@ namespace Ship_Game.Gameplay
         public bool PlatformModule   = true;
         public bool StationModule    = true;
         public float SensorRange;
+        public float BorderClaimRadius;
         public float MechanicalBoardingDefense;
         public float EMPProtection;
         public int PowerRadius;

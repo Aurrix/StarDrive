@@ -15,6 +15,9 @@
     <UnlockedMod>
       <ModuleUID>SubspaceSensors</ModuleUID>
     </UnlockedMod>
+    <UnlockedMod>
+      <ModuleUID>ObservationPost</ModuleUID>
+    </UnlockedMod>
   </ModulesUnlocked>
   <BuildingsUnlocked>
     <UnlockedBuilding>

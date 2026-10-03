@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<ShipModule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <UID>ObservationPost</UID>
+  <Version>2</Version>
+  <Name>Observation Post</Name>
+  <ModuleType>Sensors</ModuleType>
+  <XSize>2</XSize><YSize>2</YSize>
+  <Restrictions>IO</Restrictions>
+  <StationModule>true</StationModule><PlatformModule>true</PlatformModule>
+  <Cost>48</Cost><Mass>20</Mass><Health>1150</Health><HealthMax>1150</HealthMax>
+  <PowerDraw>60</PowerDraw><SensorRange>180000</SensorRange>
+  <IconTexturePath>Modules/sensors_2x2</IconTexturePath>
+</ShipModule>

@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<ShipModule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <UID>StarbaseCommand</UID>
+  <Version>2</Version>
+  <Name>Starbase Command</Name>
+  <ModuleType>Command</ModuleType>
+  <XSize>2</XSize><YSize>2</YSize>
+  <Restrictions>I</Restrictions>
+  <StationModule>true</StationModule><PlatformModule>true</PlatformModule>
+  <IsCommandModule>true</IsCommandModule>
+  <Cost>150</Cost><Mass>32</Mass><Health>2700</Health><HealthMax>2700</HealthMax>
+  <PowerDraw>40</PowerDraw><SensorRange>48000</SensorRange>
+  <BorderClaimRadius>120000</BorderClaimRadius>
+  <IconTexturePath>Modules/Bridge</IconTexturePath>
+</ShipModule>

@@ -296,7 +296,7 @@ public partial class BorderVisualTests : StarDriveTest
             Assert.IsTrue(SpinWait.SpinUntil(() => Universe.PrepareLoadedBorderVisuals(Game.GraphicsDevice),30000));
             byte[] oldKey = UState.BorderOverviewCache.SceneKey;
             // Save while presentation still shows the previous generation.
-            AddDummyPlanetToEmpire(new Vector2(400000,1000),Player);
+            AddDummyPlanetToEmpire(new Vector2(UState.Size-1000,1000),Player);
             Universe.Projection = Matrix.Identity;
             Universe.CamPos = new Vector3d(0,0,300000);
             var preparation = new BorderSavePreparation(UState);
@@ -304,8 +304,13 @@ public partial class BorderVisualTests : StarDriveTest
             try
             {
                 UState.BorderOverviewForSave = preparation.Complete();
-                Assert.IsTrue(UState.BorderOverviewForSave.DetailTiles.Length > 0,
-                    "Save must include the camera's visible detailed borders");
+                int level = BorderVisualTile.PresentationLevel(UState.Size);
+                float cell = new BorderVisualTile.Key(level,0,0).Cell;
+                var outsideKey = new BorderVisualTile.Key(level,
+                    BorderVisualTile.TileCoordinate(UState.Size+100000,cell),0);
+                Assert.IsTrue(UState.BorderOverviewForSave.Tiles.Any(bytes =>
+                    new BorderVisualTile(bytes,UState.Empires.Count).Address == outsideKey),
+                    "Saving a new edge colony must include territory beyond the galaxy bounds");
                 Assert.IsFalse(oldKey.AsSpan().SequenceEqual(UState.BorderOverviewForSave.SceneKey));
                 loaded = UnitTests.Serialization.BinarySerializerTests.SerDes(UState);
             }
@@ -363,7 +368,7 @@ public partial class BorderVisualTests : StarDriveTest
             restored.Update(scene,300000,view,view.W/450,overviewOnly:true);
             return restored.DisplayedScene != null;
         },30000));
-        Assert.AreEqual(0,restored.JobsStarted,"Saved overview must require no rasterization jobs");
+        Assert.AreEqual(0,restored.JobsStarted,"Matching saved tiles must not be rasterized again");
         Assert.AreEqual(original.TilesUploaded,restored.TilesUploaded);
         UState.BorderOverviewCache = saved;
         var loaded = UnitTests.Serialization.BinarySerializerTests.SerDes(UState);
@@ -440,7 +445,7 @@ public partial class BorderVisualTests : StarDriveTest
             Assert.IsTrue(SpinWait.SpinUntil(() =>
                 loadedScreen.PrepareLoadedBorderVisuals(Game.GraphicsDevice),30000));
             Assert.AreEqual(0,loadedScreen.PoliticalBorders.JobsStarted,
-                "Save initialization must preserve the overview cache's input identity");
+                "Save initialization must preserve the cache's input identity");
             loadedScreen.PoliticalBorders.Dispose();
             loadedScreen.PoliticalBorders = null;
         }
@@ -574,7 +579,8 @@ public partial class BorderVisualTests : StarDriveTest
         hidden.Empires[0].Known = false;
         Assert.IsTrue(hidden.KnowledgeRemovedSince(recolored));
         borders.Update(hidden,600000,view,2500);
-        Assert.IsNull(borders.HoverText(new(240000,0),2500));
+        Assert.IsNotNull(borders.HoverText(new(240000,0),2500),
+            "Knowledge loss should retain last-seen border information");
         borders.Dispose();
         borders.Update(scene,600000,view,2500); // no late upload after disposal
     }
@@ -615,9 +621,9 @@ public partial class BorderVisualTests : StarDriveTest
         for (int x = 32; x < 287; ++x)
             if (tile.Labels[row*320+x] != 0 && tile.Labels[row*320+x+1] == 0) { edge = x; break; }
         Assert.IsTrue(edge >= 0);
-        float leftDistance = tile.Territory[row*320+edge].A;
-        float rightDistance = tile.Territory[row*320+edge+1].A;
-        float crossing = leftDistance / Math.Max(1,leftDistance+rightDistance);
+        float leftDistance = BorderVisualTile.DecodeDistance(tile.Territory[row*320+edge]);
+        float rightDistance = BorderVisualTile.DecodeDistance(tile.Territory[row*320+edge+1]);
+        float crossing = leftDistance / Math.Max(0.0001f,leftDistance+rightDistance);
         var center = new Vector2((edge+0.5f+crossing-32)*1000,1500);
         var previous = device.GetRenderTargets();
         var pixels = new Color[512*512];
@@ -703,8 +709,8 @@ public partial class BorderVisualTests : StarDriveTest
                     if (Player.IsInBorderTerritory(new(middle,worldY))) low = middle;
                     else high = middle;
                 }
-                float a = tile.Territory[p].A, b = tile.Territory[p+1].A;
-                float interpolated = (x-32+0.5f+a/Math.Max(1,a+b))*1000;
+                float a = BorderVisualTile.DecodeDistance(tile.Territory[p]), b = BorderVisualTile.DecodeDistance(tile.Territory[p+1]);
+                float interpolated = (x-32+0.5f+a/Math.Max(0.0001f,a+b))*1000;
                 error += Math.Abs(interpolated-(low+high)*0.5f)/1000;
                 ++samples;
             }
@@ -794,6 +800,194 @@ public partial class BorderVisualTests : StarDriveTest
                     device.SetRenderTargets(previous);
                     Save(target,$"borders-{width}x{height}-{worldWidth}.png");
                 }
+            }
+        }
+        finally { device.SetRenderTargets(previous); }
+    }
+
+    [TestMethod]
+    public void PresentationCoversClaimsBeyondEveryMapEdgeAndCorner()
+    {
+        const float radius = 600000;
+        var directions = new[] { new Vector2(-1,0),new Vector2(1,0),
+            new Vector2(0,-1),new Vector2(0,1),new Vector2(-1,-1),
+            new Vector2(-1,1),new Vector2(1,-1),new Vector2(1,1) };
+        SetField(Player,directions.Select(d => (d*590000,150000f)).ToArray());
+        var scene = new BorderScene(new[] { Player });
+        var keys = new HashSet<BorderVisualTile.Key>(BorderVisualRenderer.PresentationKeys(scene,radius));
+        int level = BorderVisualTile.PresentationLevel(radius);
+        float cell = new BorderVisualTile.Key(level,0,0).Cell;
+        foreach (Vector2 direction in directions)
+        {
+            Vector2 point = direction*680000;
+            Assert.AreEqual(1,scene.Classify(point,new float[1],new int[1]));
+            var key = new BorderVisualTile.Key(level,BorderVisualTile.TileCoordinate(point.X,cell),
+                BorderVisualTile.TileCoordinate(point.Y,cell));
+            Assert.IsTrue(keys.Contains(key),$"Missing exterior claim tile at {point}");
+        }
+    }
+
+    [TestMethod]
+    public void BordersBeyondMapEdgeSurviveCameraChangesAndCacheRestore()
+    {
+        const float radius = 600000;
+        SetField(Player,(new Vector2(-590000,1000),150000));
+        var scene = new BorderScene(new[] { Player });
+        var point = new Vector2(-700000,1000);
+        Assert.AreEqual(1,scene.Classify(point,new float[1],new int[1]));
+        var view = new RectF(-900000,-200000,500000,400000);
+        using var renderer = new BorderVisualRenderer(Game.GraphicsDevice);
+        Assert.IsTrue(SpinWait.SpinUntil(() => {
+            renderer.Update(scene,radius,view,view.W/512);
+            return renderer.SavedOverview != null;
+        },30000));
+        Assert.IsNotNull(renderer.HoverText(point,view.W/512),
+            "Visible territory beyond the galaxy edge must have resident pixels");
+        int jobs = renderer.JobsStarted, uploads = renderer.TilesUploaded;
+        var distant = new RectF(-1500000,-1500000,3000000,3000000);
+        renderer.Update(scene,radius,distant,distant.W/512);
+        Assert.AreEqual(jobs,renderer.JobsStarted);
+        Assert.AreEqual(uploads,renderer.TilesUploaded);
+        using var restored = new BorderVisualRenderer(Game.GraphicsDevice);
+        Assert.IsTrue(restored.RestoreOverview(renderer.SavedOverview,scene,radius));
+        Assert.IsTrue(SpinWait.SpinUntil(() => {
+            restored.Update(scene,radius,view,view.W/512);
+            return restored.IsViewReady(view,view.W/512);
+        },30000));
+        Assert.AreEqual(0,restored.JobsStarted);
+        Assert.IsNotNull(restored.HoverText(point,view.W/512));
+    }
+
+    [TestMethod]
+    public void ZoomAndPanDoNotRasterizeOrUploadAnUnchangedScene()
+    {
+        SetField(Player,(new Vector2(1000,1000),100000));
+        var scene = new BorderScene(new[]{Player});
+        using var borders = new BorderVisualRenderer(Game.GraphicsDevice);
+        var initial = new RectF(-100000,-100000,200000,200000);
+        Assert.IsTrue(SpinWait.SpinUntil(() => {
+            borders.Update(scene,600000,initial,initial.W/512);
+            return borders.IsViewReady(initial,initial.W/512);
+        },30000));
+        int jobs = borders.JobsStarted, uploads = borders.TilesUploaded;
+        foreach (var view in new[] {
+            new RectF(-1500000,-1500000,3000000,3000000),
+            new RectF(450000,-50000,100000,100000),
+            new RectF(-550000,-50000,100000,100000), initial })
+        {
+            borders.Update(scene,600000,view,view.W/512);
+            Assert.IsTrue(borders.IsViewReady(view,view.W/512));
+            Assert.AreEqual(jobs,borders.JobsStarted,"Camera movement must not request tiles, including outside galaxy bounds");
+            Assert.AreEqual(uploads,borders.TilesUploaded,"Camera movement must only change projection");
+        }
+    }
+
+    [TestMethod]
+    public void LargeGalaxyContoursStayWithinFivePixelsAtCloseZoom()
+    {
+        SetField(Player,(new Vector2(1000,1000),120000));
+        var scene = new BorderScene(new[] {Player});
+        var view = new RectF(-200000,-200000,400000,400000);
+        using var renderer = new BorderVisualRenderer(Game.GraphicsDevice);
+        Assert.IsTrue(SpinWait.SpinUntil(() => {
+            renderer.Update(scene,20000000,view,view.W/512);
+            return renderer.IsViewReady(view,view.W/512);
+        },30000));
+        var levelField = typeof(BorderVisualRenderer).GetField("Level",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
+        int level = (int)levelField.GetValue(renderer);
+        var tile = new BorderVisualTile(scene,new(level,0,0));
+        float cell = tile.Address.Cell;
+        float Signed(float x, float y)
+        {
+            float px = x/cell+31.5f, py = y/cell+31.5f;
+            int ix = (int)MathF.Floor(px), iy = (int)MathF.Floor(py);
+            float fx = px-ix, fy = py-iy;
+            float At(int dx,int dy) {
+                var c = tile.Territory[(iy+dy)*320+ix+dx];
+                return BorderVisualTile.DecodeDistance(c)*(BorderVisualTile.Decode(c)>0?1:-1);
+            }
+            float a=At(0,0), b=At(1,0), c=At(0,1), d=At(1,1);
+            return (a+(b-a)*fx)*(1-fy)+(c+(d-c)*fx)*fy;
+        }
+        var strengths = new float[1]; var winners = new int[1];
+        float worstError=0;
+        for (float y=10000; y<=90000; y+=10000)
+        {
+            float lo=0,hi=250000;
+            for (int i=0;i<24;i++) { float mid=(lo+hi)*0.5f; if(scene.Classify(new(mid,y),strengths,winners)>0)lo=mid;else hi=mid; }
+            float actual=(lo+hi)*0.5f;
+            lo=0;hi=250000;
+            for(int i=0;i<24;i++) { float mid=(lo+hi)*0.5f; if(Signed(mid,y)>0)lo=mid;else hi=mid; }
+            worstError=Math.Max(worstError,Math.Abs(actual-(lo+hi)*0.5f));
+        }
+        TestContext.WriteLine($"Largest-galaxy contour error: {worstError:0.0} world units ({worstError/200:0.00} pixels at close zoom).");
+        // 200 world units/pixel is a normal close view. Allow five screen pixels.
+        Assert.IsTrue(worstError<=1000,$"The pinned raster has {cell:0} world units/cell; contour error {worstError:0} world units ({worstError/200:0.0} close-view pixels).");
+    }
+
+    [TestMethod]
+    public void ContestedBandsAreDenserAndFilteredWhenMinified()
+    {
+        GraphicsDevice device = Game.GraphicsDevice;
+        using var draw = new SpriteRenderer(device);
+        using var shader = new SpriteShader(SDGraphics.Shaders.Shader.FromFile(device,
+            ResourceManager.GetModOrVanillaFile("Effects/PoliticalBorders.mgfx").FullName));
+        using var labels = new Texture2D(device,320,320);
+        using var neighbors = new Texture2D(device,320,320);
+        using var regions = new Texture2D(device,1024,1,false,SurfaceFormat.Vector4);
+        using var palette = new Texture2D(device,1024,1,false,SurfaceFormat.Vector4);
+        labels.SetData(Enumerable.Repeat(BorderVisualTile.Encode(1,0),320*320).ToArray());
+        neighbors.SetData(new Color[320*320]);
+        var metadata = new Microsoft.Xna.Framework.Vector4[1024];
+        metadata[1] = new(1,2,0,0);
+        regions.SetData(metadata);
+        var colors = new Microsoft.Xna.Framework.Vector4[1024];
+        colors[1] = Color.Red.ToVector4(); colors[2] = Color.Blue.ToVector4();
+        palette.SetData(colors);
+        var effect = shader.Shader;
+        effect["Neighbors"].SetValue(neighbors); effect["Regions"].SetValue(regions);
+        effect["ClaimantColors"].SetValue(palette);
+        effect["RegionSize"].SetValue(new Microsoft.Xna.Framework.Vector2(1024,1));
+        effect["PaletteSize"].SetValue(new Microsoft.Xna.Framework.Vector2(1024,1));
+        effect["CellOrigin"].SetValue(new Microsoft.Xna.Framework.Vector2(-32,-32));
+        effect["Minimap"].SetValue(0f); effect["StripeScale"].SetValue(1f);
+        var previous = device.GetRenderTargets();
+        try
+        {
+            foreach (int size in new[] {512,64})
+            {
+                using var target = new RenderTarget2D(device,size,size,false,SurfaceFormat.Color,DepthFormat.None);
+                device.SetRenderTarget(target); device.Clear(Color.Transparent);
+                device.BlendState = BlendState.AlphaBlend;
+                device.DepthStencilState = DepthStencilState.None;
+                effect["PixelsPerCell"].SetValue(size/256f);
+                draw.RecycleBuffers();
+                draw.Begin(Matrix.CreateOrthographicOffCenter(0,size,size,0,-10,10),shader);
+                draw.Draw(labels,new Quad3D(new RectF(0,0,size,size),0),
+                    new Quad2D(new RectF(0.1f,0.1f,0.8f,0.8f)),Color.White);
+                draw.End();
+                device.SetRenderTargets(previous);
+                var pixels = new Color[size*size]; target.GetData(pixels);
+                if (size == 512)
+                {
+                    int changes=0, last=0, mixed=0;
+                    for (int x=0;x<size;x++)
+                    {
+                        Color color = pixels[(size/2)*size+x];
+                        int owner = Math.Sign(color.R-color.B);
+                        if (owner!=0) { if(last!=0 && owner!=last) ++changes; last=owner; }
+                        if (color.R>10 && color.B>10) ++mixed;
+                    }
+                    Assert.IsTrue(changes>=60 && changes<=65,$"Expected 64 bands across 256 cells, got {changes} transitions");
+                    Assert.IsTrue(mixed>=32,"Diagonal band edges must have partial pixel coverage");
+                }
+                else
+                {
+                    foreach (Color color in pixels)
+                        Assert.IsTrue(Math.Abs(color.R-color.B)<=1 && color.R+color.B>100,
+                            "Subpixel bands must retain both owners instead of aliasing between colors");
+                }
+                Save(target,$"contested-band-filter-{size}.png");
             }
         }
         finally { device.SetRenderTargets(previous); }

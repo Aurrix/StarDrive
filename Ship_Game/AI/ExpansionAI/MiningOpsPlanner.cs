@@ -97,6 +97,8 @@ namespace Ship_Game.AI.ExpansionAI
             {
                 Planet planet = Universe.MineablePlanets[i];
                 if (planet.IsExploredBy(Owner)
+                    && planet.Mining.CanAddMiningStationFor(Owner)
+                    && ExplorableGameObject.CanBuildExoticStationAt(Owner, planet.Position)
                     && (!planet.Mining.HasOpsOwner || planet.Mining.OpsOwnedByEmpire(Owner))
                     && (ignoreDistance || HelperFunctions.InGoodDistanceForReseachOrMiningOps(Owner, planet.System, averageDist, Influense(planet.System.Position)))
                     && (Owner.Universe.Remnants == null

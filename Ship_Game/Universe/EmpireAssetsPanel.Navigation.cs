@@ -11,19 +11,19 @@ public sealed partial class EmpireAssetsPanel
     internal enum SidebarAction
     {
         Assets, Automation, Colonies, Research, Economy, Empire, Diplomacy, Fleets,
-        Espionage, Shipyard, Ships, Blueprints, Construction, Menu, Help
+        Espionage, Shipyard, Ships, Blueprints, Construction, Help
     }
     static readonly string[] NavigationIcons =
     {
         "assets", "automation", "colonies", "research", "economy", "empire", "diplomacy", "fleets",
-        "espionage", "shipyard", "ships", "blueprints", "construction", "menu", "help"
+        "espionage", "shipyard", "ships", "blueprints", "construction", "help"
     };
     static readonly string[] NavigationTips =
     {
         "Empire Assets", "AI Automation (H)", "Colonization planner / planet reconnaissance (L)",
         "Research (R)", "Economic overview (T)", "Empire and colony management (U)", "Diplomacy (I)",
         "Fleet manager (J)", "Espionage (E)", "Ship designer (Y)", "Ship roster (K)",
-        "Colony blueprints (F)", "Deep-space construction (B)", "Main menu (O)", "Help / Codex (F1)"
+        "Colony blueprints (F)", "Deep-space construction (B)", "Help / Codex (F1)"
     };
     int NavigationOffset;
     int NavigationCapacity => Math.Max(1, (int)((Height - 120) / 42));
@@ -107,7 +107,7 @@ public sealed partial class EmpireAssetsPanel
                 string target = action switch
                 {
                     SidebarAction.Economy => "Budget", SidebarAction.Ships => "ShipList",
-                    SidebarAction.Menu => "Main Menu", SidebarAction.Help => "?", _ => action.ToString()
+                    SidebarAction.Help => "?", _ => action.ToString()
                 };
                 Screen.EmpireUI.OpenNavigation(target);
                 return;

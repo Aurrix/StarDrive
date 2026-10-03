@@ -13,15 +13,17 @@ namespace Ship_Game;
 public sealed partial class EmpireUIOverlay
 {
     internal const int DashboardHeight = 36;
+    int DashboardControlsRight => Universe.ScreenWidth - 34;
+    internal RectF DashboardMenuRect => new(Universe.ScreenWidth - 38, 6, 31, 24);
     int DashboardMusicWidth => Universe.ScreenWidth >= 1440 ? 190 : 144;
     bool PlaylistOpen;
     int PlaylistOffset;
     string ScrollingTrack;
     long TrackScrollStarted;
-    internal RectF MusicTitleRect => new(Universe.ScreenWidth - 170 - DashboardMusicWidth, 0, DashboardMusicWidth - 86, DashboardHeight);
+    internal RectF MusicTitleRect => new(DashboardControlsRight - 170 - DashboardMusicWidth, 0, DashboardMusicWidth - 86, DashboardHeight);
     internal const int PlaylistRowHeight = 42;
     int PlaylistRows => Math.Max(1, Math.Min(10, (Universe.ScreenHeight - DashboardHeight - 12) / PlaylistRowHeight));
-    internal RectF PlaylistRect => new(Universe.ScreenWidth - 534, DashboardHeight + 2, 360,
+    internal RectF PlaylistRect => new(DashboardControlsRight - 534, DashboardHeight + 2, 360,
         Math.Max(1, Math.Min(PlaylistRows, GameAudio.GetMusicTracks("AmbientMusic").Length)) * PlaylistRowHeight + 8);
     internal enum DashboardItem { Money, Food, Production, Science, Research, Population, Freight, Empire, Fleets, Resources, Alerts }
     static readonly float[] DashboardWeights = { 1.25f, 1.1f, 1.1f, .8f, 1.5f, 1.05f, .65f, .55f, .65f, 1f, .4f };
@@ -53,10 +55,10 @@ public sealed partial class EmpireUIOverlay
             if (i < (int)item) before += DashboardWeights[i];
         }
         // Cap the entire resource strip so wide displays don't stretch each item.
-        float available = Math.Max(1, Math.Min(906, Universe.ScreenWidth - 252 - DashboardMusicWidth));
+        float available = Math.Max(1, Math.Min(906, DashboardControlsRight - 252 - DashboardMusicWidth));
         // Reserve a modest minimum for the research title and progress bar.
         float research = Math.Max(150, available * DashboardWeights[4] / total);
-        research = Math.Min(research, available * .25f);
+        research = Math.Min(research, available);
         float scale = (available - research) / (total - DashboardWeights[4]);
         float x = before * scale + ((int)item > 4 ? research - DashboardWeights[4] * scale : 0);
         return new RectF(x, 0, item == DashboardItem.Research ? research : DashboardWeights[(int)item] * scale, DashboardHeight);
@@ -64,10 +66,10 @@ public sealed partial class EmpireUIOverlay
 
     // 0 toggles pause; 1..4 select a simulation speed without changing pause state.
     internal RectF DashboardSpeedRect(int index)
-        => new(Universe.ScreenWidth - 174 + index * 34, 6, 31, 24);
+        => new(DashboardControlsRight - 174 + index * 34, 6, 31, 24);
 
     internal RectF DashboardMusicRect(int index)
-        => new(Universe.ScreenWidth - 252 + index * 26, 6, 24, 24);
+        => new(DashboardControlsRight - 252 + index * 26, 6, 24, 24);
 
     static string DashNumber(double value) => Math.Abs(value) >= 1000000 ? $"{value / 1000000:0.#}M"
         : Math.Abs(value) >= 1000 ? $"{value / 1000:0.#}K" : $"{value:0.#}";
@@ -198,7 +200,7 @@ public sealed partial class EmpireUIOverlay
         }
         string date = Universe.StarDateString;
         bool customSpeed = System.Array.IndexOf(DashboardSpeeds, Universe.UState.GameSpeed) < 0;
-        DrawDashboardText(batch, date, new RectF(Universe.ScreenWidth - 249 - DashboardMusicWidth, 0, 70, DashboardHeight), DashboardGold);
+        DrawDashboardText(batch, date, new RectF(DashboardControlsRight - 249 - DashboardMusicWidth, 0, 70, DashboardHeight), DashboardGold);
         DrawDashboardMusic(batch);
         for (int i = 0; i < 5; ++i)
         {
@@ -209,14 +211,21 @@ public sealed partial class EmpireUIOverlay
             DrawDashboardText(batch, i == 0 ? (Universe.UState.Paused ? ">" : "II") : $"{(i == 4 && customSpeed ? Universe.UState.GameSpeed : DashboardSpeeds[i - 1]):0.##}x", rect, selected ? DashboardCyan : DashboardGold);
             if (rect.HitTest(DashboardCursor)) ToolTip.CreateTooltip(i == 0 ? "Pause / resume (Space)" : $"Set speed to {DashboardSpeeds[i - 1]:0.#}x; keeps the current pause state.\nCurrent speed: {Universe.UState.GameSpeed:0.###}x");
         }
-        if (new RectF(Universe.ScreenWidth - 252 - DashboardMusicWidth, 0, 75, DashboardHeight).HitTest(DashboardCursor))
+        RectF menu = DashboardMenuRect;
+        bool menuHovered = menu.HitTest(DashboardCursor);
+        batch.FillRectangle(menu, menuHovered ? new Color(20, 61, 68) : new Color(10, 20, 25));
+        batch.DrawRectangle(menu, menuHovered ? DashboardCyan : new Color(87, 82, 63));
+        batch.Draw(ResourceManager.Texture("NewUI/SidebarIcons/menu"),
+            new RectF(menu.X + 5, menu.Y + 2, 20, 20), menuHovered ? DashboardCyan : DashboardGold);
+        if (menuHovered) ToolTip.CreateTooltip("Main menu (O)");
+        if (new RectF(DashboardControlsRight - 252 - DashboardMusicWidth, 0, 75, DashboardHeight).HitTest(DashboardCursor))
             ToolTip.CreateTooltip($"Stardate {Universe.StarDateString}\nCurrent speed: {Universe.UState.GameSpeed:0.###}x\n{(Universe.UState.Paused ? "Paused" : "Running")}");
     }
 
     void DrawDashboardMusic(SpriteBatch batch)
     {
         var manager = Universe.ScreenManager;
-        RectF music = new(Universe.ScreenWidth - 174 - DashboardMusicWidth, 0, DashboardMusicWidth, DashboardHeight);
+        RectF music = new(DashboardControlsRight - 174 - DashboardMusicWidth, 0, DashboardMusicWidth, DashboardHeight);
         RectF titleRect = MusicTitleRect;
         titleRect.W -= 12;
         DrawScrollingTrack(batch, manager.AmbientTrackTitle, titleRect);
@@ -324,6 +333,11 @@ public sealed partial class EmpireUIOverlay
         if (!new RectF(0, 0, Universe.ScreenWidth, DashboardHeight).HitTest(DashboardCursor)) return false;
         // Keyboard shortcuts still work while the cursor rests on the bar.
         if (!input.InGameSelect) return !input.WasAnyKeyPressed;
+        if (DashboardMenuRect.HitTest(DashboardCursor))
+        {
+            OpenNavigation("Main Menu");
+            return true;
+        }
         for (int i = 0; i < 3; ++i)
         {
             if (!DashboardMusicRect(i).HitTest(DashboardCursor)) continue;

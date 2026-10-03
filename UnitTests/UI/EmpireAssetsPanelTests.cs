@@ -393,7 +393,6 @@ public class EmpireAssetsPanelTests : StarDriveTest
             Assert.IsTrue(MoveTo(20, 230), "Rail scrolling must not leak into the map.");
         }
         Assert.AreEqual(Enum.GetValues<EmpireAssetsPanel.SidebarAction>().Length, seen.Count);
-        Assert.IsTrue(seen.Contains(EmpireAssetsPanel.SidebarAction.Menu));
         Assert.IsTrue(seen.Contains(EmpireAssetsPanel.SidebarAction.Help));
     }
 

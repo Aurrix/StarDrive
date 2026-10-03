@@ -87,6 +87,11 @@ namespace Ship_Game.Commands.Goals
             if (ResearchStation != null) // We got
                 return GoalStep.GoToNextStep;
 
+            if (!ExplorableGameObject.CanBuildExoticStationAt(Owner, TargetPlanet?.Position ?? StaticBuildPos)
+                || TargetSolarBody.HasExoticStation(Owner, mining: false)
+                || TargetSolarBody.HasExoticStationGoal(Owner, mining: false, except: this))
+                return GoalStep.GoalFailed;
+
             if (StationToBuild == null)
             {
                 StationToBuild = !Owner.isPlayer || Owner.AutoPickBestResearchStation

@@ -1,7 +1,0 @@
-﻿  - Borders no longer grant vision or modify movement speed.
-  - Friendly or threatened AI respects colonial claims; stronger rivals can trespass and colonize provocatively.
-  - Passage requests include incentives, with temporary emergency access after refusals.
-  - Enclaves can prompt access negotiations, colony exchanges, or war preparations.
-  - AI can traverse contested territory.
-  - Mining and research stations transfer after five seconds of uncontested control.
-  - Added a minimap flag toggle and Disable political borders in game options.in 

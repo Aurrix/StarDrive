@@ -62,6 +62,7 @@ namespace Ship_Game.Ships
             S.RepairRate              = 0f;
             S.CargoSpaceMax           = 0f;
             S.SensorRange             = 1000f;
+            S.BorderClaimRadius       = 0f;
             S.InhibitionRadius        = 0f;
             S.OrdAddedPerSecond       = 0f;
             S.HealPerTurn             = 0;
@@ -94,6 +95,7 @@ namespace Ship_Game.Ships
                     S.HealPerTurn += module.HealPerTurn;
                     S.InhibitionRadius = Math.Max(module.InhibitionRadius, S.InhibitionRadius);
                     S.SensorRange = Math.Max(module.SensorRange, S.SensorRange);
+                    S.BorderClaimRadius = Math.Max(module.BorderClaimRadius, S.BorderClaimRadius);
                     maxSensorBonus = Math.Max(module.SensorBonus, maxSensorBonus);
                     S.TargetingAccuracy = Math.Max(module.TargetingAccuracy, S.TargetingAccuracy);
                     S.TrackingPower += module.TargetTracking;

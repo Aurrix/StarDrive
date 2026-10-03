@@ -72,6 +72,7 @@ namespace Ship_Game.Ships
         [StarData] public float Experience;
         public bool EnginesKnockedOut;
         public float InhibitionRadius;
+        public float BorderClaimRadius;
         public bool IsPlatform;
         public bool IsGuardian; // All Remnant ships are guardians
         SceneObject ShipSO;

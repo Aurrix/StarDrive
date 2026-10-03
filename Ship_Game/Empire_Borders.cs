@@ -123,12 +123,6 @@ public sealed partial class Empire
         if (IsDefeated)
             return;
 
-        us.ResetBordersPerf.Start();
-        {
-            ResetBorders();
-        }
-        us.ResetBordersPerf.Stop();
-
         us.ScanFromPlanetsPerf.Start();
         {
             // this will add SetSeen entries to ThreatMatrix
@@ -137,6 +131,13 @@ public sealed partial class Empire
         us.ScanFromPlanetsPerf.Stop();
 
         FirstContact.CheckForFirstContacts(this);
+
+        // Contact can change empire knowledge during this update. Rebuild after
+        // the contact event so the published scene contains the new visible
+        // field immediately instead of one simulation tick later.
+        us.ResetBordersPerf.Start();
+        ResetBorders();
+        us.ResetBordersPerf.Stop();
 
         ThreatMatrixUpdateTimer -= timeStep.FixedTime;
         if (ThreatMatrixUpdateTimer <= 0f)
@@ -235,7 +236,9 @@ public sealed partial class Empire
 
     public bool IsBorderNode(Ship ship)
     {
-        return ship.IsSubspaceProjector
+        // Projectors provide sensors and roads, but do not create political
+        // claims. Claims come from colonies and explicit station capabilities.
+        return ship.BorderClaimRadius > 0f
                || (WeAreRemnants && ship.Name == data.RemnantPortal)
                || (WeArePirates && Pirates.IsBase(ship));
     }
@@ -247,7 +250,8 @@ public sealed partial class Empire
         bool isBorderNode = IsBorderNode(ship);
         if (isBorderNode)
         {
-            OurBorderShips.Add(new(ship, GetStaticBorderInfluenceRadius(), known));
+            OurBorderShips.Add(new(ship, ship.BorderClaimRadius > 0f
+                ? ship.BorderClaimRadius : GetStaticBorderInfluenceRadius(), known));
         }
 
         // all ships/stations/SSP-s are sensor nodes
@@ -540,7 +544,13 @@ public sealed partial class Empire
         }
         foreach (ref InfluenceNode n in borderShips)
         {
-            n.Radius = useSensorRange ? ((Ship)n.Source).SensorRange : borderProjectorRadius;
+            Ship ship = (Ship)n.Source;
+            // Explicit claim modules own their radius.  Keep the legacy
+            // sensor-radius behavior for pirate/remnant special ships, and
+            // the static empire radius only for legacy border nodes.
+            n.Radius = ship.BorderClaimRadius > 0f
+                ? ship.BorderClaimRadius
+                : (useSensorRange ? ship.SensorRange : borderProjectorRadius);
         }
         foreach (ref InfluenceNode n in borderSystems)
         {

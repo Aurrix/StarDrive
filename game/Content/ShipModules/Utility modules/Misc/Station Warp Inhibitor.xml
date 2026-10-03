@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<ShipModule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <UID>StationWarpInhibitor</UID>
+  <Version>2</Version>
+  <Name>Station Warp Inhibitor</Name>
+  <ModuleType>Special</ModuleType>
+  <XSize>4</XSize><YSize>4</YSize>
+  <Restrictions>I</Restrictions>
+  <StationModule>true</StationModule><PlatformModule>true</PlatformModule>
+  <Cost>250</Cost><Mass>200</Mass><Health>3840</Health><HealthMax>3840</HealthMax>
+  <PowerDraw>750</PowerDraw><PowerDrawAtWarp>-750</PowerDrawAtWarp>
+  <InhibitionRadius>40000</InhibitionRadius>
+  <IconTexturePath>Modules/Inhibitor_5x5</IconTexturePath>
+</ShipModule>

@@ -28,6 +28,68 @@ public class BorderPolicyTests : StarDriveTest
     }
 
     [TestMethod]
+    public void AiExoticStationsRequireOwnTerritoryEvenWithOpenBorders()
+    {
+        Border(Player, new Vector2(1000, 1000));
+        Border(Enemy, new Vector2(300000, 0));
+        Enemy.SignTreatyWith(Player, TreatyType.OpenBorders);
+        Assert.IsFalse(ExplorableGameObject.CanBuildExoticStationAt(Enemy, Vector2.Zero));
+        Assert.IsFalse(ExplorableGameObject.CanBuildExoticStationAt(Enemy, new Vector2(600000, 0)));
+        Assert.IsTrue(ExplorableGameObject.CanBuildExoticStationAt(Enemy, new Vector2(300000, 0)));
+        UState.P.DisablePoliticalBorders = true;
+        Assert.IsTrue(ExplorableGameObject.CanBuildExoticStationAt(Enemy, Vector2.Zero));
+    }
+
+    [TestMethod]
+    public void ExoticStationLimitsCountOtherOwnersAndAllowRefitReplacement()
+    {
+        Planet planet = AddDummyPlanet(new Vector2(1000, 1000));
+        Ship research = SpawnShip(Player.data.DefaultResearchStation, Player, planet.Position);
+        research.TetherToPlanet(planet);
+        Ship mining = SpawnShip(Player.data.DefaultMiningStation, Player, planet.Position);
+        mining.TetherToPlanet(planet);
+        Assert.IsTrue(planet.HasExoticStation(Enemy, mining: false));
+        Assert.IsTrue(planet.HasExoticStation(Enemy, mining: true));
+        Assert.IsFalse(planet.HasExoticStation(Player, mining: false, except: research));
+        Assert.IsFalse(planet.HasExoticStation(Player, mining: true, except: mining));
+        Assert.IsFalse(planet.System.HasExoticStation(Enemy, mining: false), "Planet research must not occupy the star's slot");
+        Assert.AreEqual(1, Mineable.MaximumMiningStations);
+    }
+
+    [TestMethod]
+    public void PendingStationGoalsReserveTheBodyAcrossEmpires()
+    {
+        Planet planet = AddDummyPlanet(new Vector2(1000, 1000));
+        var goal = new Ship_Game.Commands.Goals.ProcessResearchStation(Player, planet);
+        Player.AI.AddGoal(goal);
+        Assert.IsTrue(planet.HasExoticStationGoal(Enemy, mining: false));
+        Assert.IsFalse(planet.HasExoticStationGoal(Player, mining: false, except: goal));
+        Assert.IsFalse(planet.HasExoticStationGoal(Enemy, mining: true));
+    }
+
+    [TestMethod]
+    public void StationDeploymentRechecksBordersAndExistingStations()
+    {
+        Vector2 site = new Vector2(300000, 0);
+        Border(Enemy, site);
+        Planet planet = AddDummyPlanet(site);
+        var goal = new Ship_Game.Commands.Goals.DeepSpaceBuildGoal(GoalType.BuildOrbital, Enemy)
+        {
+            Build = new Ship_Game.Commands.Goals.BuildableShip(Player.data.DefaultResearchStation),
+            TetherPlanet = planet,
+            TargetSystem = planet.System
+        };
+        Assert.IsTrue(goal.ExoticStationSiteValid());
+        Enemy.BorderNodes = System.Array.Empty<Empire.InfluenceNode>();
+        Enemy.PreparedBorders = null;
+        Assert.IsFalse(goal.ExoticStationSiteValid(), "Losing territory invalidates an in-flight build");
+        Border(Enemy, site);
+        Ship station = SpawnShip(Player.data.DefaultResearchStation, Player, site);
+        station.TetherToPlanet(planet);
+        Assert.IsFalse(goal.ExoticStationSiteValid(), "Another owner's deployed station occupies the slot");
+    }
+
+    [TestMethod]
     public void DisabledBordersRemoveMovementAndColonizationRestrictions()
     {
         Border(Enemy, new Vector2(300000, 0));

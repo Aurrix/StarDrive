@@ -184,6 +184,16 @@ namespace Ship_Game
             if (ShipToBuild == null)
                 return false;
 
+            bool claimsTerritory = false;
+            foreach (string uid in ShipToBuild.UniqueModuleUIDs)
+                if (uid == "StarbaseCommand") { claimsTerritory = true; break; }
+
+            // Territorial command stations may only be deployed where the player
+            // has already discovered the system. This keeps construction from
+            // becoming an unintentional map-reveal mechanism.
+            if (claimsTerritory && (targetSystem == null || !targetSystem.IsExploredBy(Player)))
+                return false;
+
             if (targetSystem != null && (targetPlanet == null && Screen.CursorWorldPosition2D.InRadius(targetSystem.Position, MinimumBuildDistanceFromSun)
                                          || !targetSystem.InSafeDistanceFromRadiation(Screen.CursorWorldPosition2D)))
             {

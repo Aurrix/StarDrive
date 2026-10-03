@@ -20,7 +20,10 @@
     </UnlockedMod>				
     <UnlockedMod>
       <ModuleUID>ProcessingUnit</ModuleUID>
-    </UnlockedMod>		
+    </UnlockedMod>
+    <UnlockedMod>
+      <ModuleUID>StarbaseCommand</ModuleUID>
+    </UnlockedMod>
   </ModulesUnlocked>
   <BuildingsUnlocked />
   <BonusUnlocked />

@@ -127,6 +127,7 @@ namespace Ship_Game.Ships
         public bool PlatformModule               => Flyweight.PlatformModule;
         public bool StationModule                => Flyweight.StationModule;
         public float SensorRange                 => Flyweight.SensorRange;
+        public float BorderClaimRadius           => Flyweight.BorderClaimRadius;
         public float MechanicalBoardingDefense   => Flyweight.MechanicalBoardingDefense;
         public float EMPProtection               => Flyweight.EMPProtection;
         public int PowerRadius                   => Flyweight.PowerRadius;

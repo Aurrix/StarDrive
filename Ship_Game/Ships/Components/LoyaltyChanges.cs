@@ -28,6 +28,8 @@ namespace Ship_Game.Ships.Components
 
         Pending Change;
 
+        public Type ChangeType => Volatile.Read(ref Change)?.Type ?? Type.None;
+
         public LoyaltyChanges(Ship ship, Empire loyalty)
         {
             ship.Loyalty = loyalty;

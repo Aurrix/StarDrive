@@ -307,7 +307,7 @@ public sealed partial class EmpireAssetsPanel
         bool hover = rect.HitTest(Cursor);
         batch.FillRectangle(rect, selected ? new Color(48, 45, 31) : hover ? new Color(34, 35, 28) : new Color(19, 21, 18));
         batch.DrawRectangle(rect, selected ? Accent : Edge);
-        Color stripe = row.Fleet != null && row.Fleet.IsAnyShipInCombat() ? Color.IndianRed : Accent;
+        Color stripe = row.Fleet != null && row.Fleet.Ships.Any(ship => !ship.OnLowAlert) ? Color.IndianRed : Accent;
         batch.FillRectangle(new RectF(rect.X, rect.Y + 2, 2, rect.H - 4), stripe);
         var iconRect = new RectF(rect.X + 5, rect.Y + 5, 28, 28);
         if (row.Station != null) row.Station.TacticalIcon().Draw(batch, iconRect, Screen.Player.EmpireColor);
